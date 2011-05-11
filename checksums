@@ -4,17 +4,16 @@
 #
 # $ checksums { update | verify } [--verbose] [--key <signing key>] <directory>...
 #
-# * use optparse
 # * --exclude <filename pattern>
 # * checksum for directories
 #   use hash for dir/.checksums? -- requires post-order traversal
 #
 
-require 'rubygems'
-require 'ruby-debug'
-
 require 'digest/md5'
 require 'gpgme'
+require 'optparse'
+
+CHECKSUMS_VERSION = '0.1'
 
 CHECKSUM_FILENAME = '.checksums'
 
@@ -453,33 +452,47 @@ def main(args)
     when 'verify'
       command = :verify
       args.shift
-    when '--verbose'
-      $verbose = true
-      args.shift
-    when '--signer'
-      args.shift
-      $signer = Signer.new(args.shift)
-    when '--signatures-only'
-      $check_signatures_only = true
-      args.shift
-    when '--dirs-only'
-      $check_dirs_only = true
-      args.shift
-    when '--force'
-      $force_update = true
-      args.shift
     else
       break
     end
   end
+
+  opts = OptionParser.new
+  opts.banner = "Usage: #{opts.program_name} { update | verify } [options] directory..."
+  opts.on('update', "Update checksum files.") {
+    command = :update
+  }
+  opts.on('verify', "Verify checksum files.") {
+    command = :verify
+  }
+  opts.on('-s KEY', '--signer KEY', String, "Key used for signing and verifying signatures.") { |val|
+    $signer = Signer.new(val)
+  }
+  opts.on('-g', '--signatures-only', "Only verify signatures.") {
+    $check_signatures_only = true
+  }
+  opts.on('-d', '--dirs-only', "Only check whether directories are unchanged") {
+    $check_dirs_only = true
+  }
+  opts.on('-f', '--force-rebuild', "Rebuild all checksums.") {
+    $force_update = true
+  }
+  opts.on('-v', '--verbose', "Display extra information.") {
+    $verbose = true
+  }
+  opts.on_tail('--version', "Show version.") {
+    puts CHECKSUMS_VERSION
+    exit
+  }
+  root_dirs = opts.parse(args)
   
   $signer ||= Signer.new
   
   case command
   when :update
-    update_checksums args
+    update_checksums root_dirs
   when :verify
-    verify_checksums args
+    verify_checksums root_dirs
   else
     $stderr.puts 'Please specify a command, one of `update` and `verify`.'
   end
