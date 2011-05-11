@@ -10,8 +10,10 @@
 #   use hash for dir/.checksums? -- requires post-order traversal
 #
 
+require 'rubygems'
+require 'ruby-debug'
+
 require 'digest/md5'
-require 'find'
 require 'gpgme'
 
 CHECKSUM_FILENAME = '.checksums'
@@ -21,7 +23,39 @@ $verbose = false
 $check_signatures_only = false
 $check_dirs_only = false
 $signer = nil
-$force_rebuild = false
+$force_update = false
+
+
+module Directories
+  class << self
+
+    def each_bottom_up(*dirs, &block) # :yield: path
+      each_dir(dirs, &block)
+    end
+
+    private
+    
+    def each_dir(dirs, &block)
+      dirs.each do |dir|
+        begin
+          children = []
+          Dir.open(dir) do |d|
+            d.each do |it|
+              next if it == '.' || it == '..'
+              p = File.join(dir, it)
+              next unless File.exist?(p) && File.lstat(p).directory?
+              children << p
+            end
+          end
+          each_dir(children, &block)
+          block[dir]
+        rescue Errno::ENOENT, Errno::EACCES
+          ### really?
+        end
+      end
+    end
+  end
+end
 
 
 class Checksums
@@ -35,6 +69,10 @@ class Checksums
     self.new(dir, parse_formatted_checksums(data))
   end
 
+  def self.for_unchecked_directory(dir)
+    self.new(dir, [])
+  end
+  
   def formatted
     checksums.map { |path, hash|
       "#{hash}  #{path}"
@@ -64,8 +102,8 @@ class Checksums
       a_file, a_hash = actuals.shift
       
       until e_file.nil? && a_file.nil? do
-        case e_file <=> a_file
-        when 0:
+        case 
+        when e_file == a_file
           if e_hash == a_hash
             callback.item_unchanged(directory, e_file, e_hash, a_hash)
           else
@@ -73,10 +111,10 @@ class Checksums
           end
           e_file, e_hash = expecteds.shift
           a_file, a_hash = actuals.shift
-        when -1:
+        when a_file.nil? || e_file < a_file
           callback.item_removed(directory, e_file)
           e_file, e_hash = expecteds.shift
-        when 1:
+        when e_file.nil? || a_file < e_file
           callback.item_added(directory, a_file)
           a_file, a_hash = actuals.shift
         end
@@ -102,7 +140,7 @@ class Checksums
       when stat.symlink?
         hash = Digest::MD5.hexdigest(File.readlink(path))
       when stat.directory?
-        hash = '' ### TODO
+        hash = Digest::MD5.file(File.join(path, CHECKSUM_FILENAME)).hexdigest rescue ''
       when stat.file?
         hash = Digest::MD5.file(path).hexdigest
       end
@@ -129,22 +167,23 @@ class CheckedRootDirs
   end
   
   def each
-    Find.find(*@roots) do |entity|
-      stat = File.lstat(entity)
-      yield CheckedDir.new(entity, stat, @signer) if stat.directory?
+    Directories.each_bottom_up(*@roots) do |entity|
+      yield CheckedDir.new(entity, @signer)
     end
   end
 end
 
 
 class CheckedDir
-  def initialize(dir, stat = File.lstat(dir), signer = nil)
-    @dir, @stat, @signer = dir, stat, (signer || Signer.null_object)
-    @checksum_file = File.join(@dir, CHECKSUM_FILENAME)
+  def initialize(dir, signer = nil)
+    @dir            = dir
+    @stat           = File.lstat(dir)
+    @signer         = signer || Signer.null_object
+    @checksum_file  = File.join(@dir, CHECKSUM_FILENAME)
   end
   
   def ignored?
-    empty?
+    empty? && !File.file?(File.join(@dir, CHECKSUM_FILENAME))
   end
   
   def needs_update?
@@ -179,8 +218,8 @@ class CheckedDir
   private
   
   class VerificationContext
-    def initialize(handlers)
-      instance_eval(&handlers)
+    def initialize(handlers = nil)
+      instance_eval(&handlers) if handlers
     end
     
     def on_valid_signature(&block)
@@ -259,7 +298,8 @@ class CheckedDir
     GPGME::clearsign(checksums.formatted, :signers => @signer.signers)
   end
   
-  def read_checksums(verification_context)
+  def read_checksums(verification_context = VerificationContext.new)
+    return Checksums.for_unchecked_directory(@dir) unless File.file?(@checksum_file)
     signed_sums = File.read(@checksum_file)
     verified_checksums = verify_signature(signed_sums)
     
@@ -349,8 +389,8 @@ end
 
 def update_checksums(root_dirs)
   puts "Updating checksums..." if $verbose
-  dirs(root_dirs).select { |d| $force_rebuild || d.needs_update? }.each do |checked_dir|
-    puts checked_dir if $verbose
+  dirs(root_dirs).select { |d| $force_update || d.needs_update? }.each do |checked_dir|
+    put schecked_dir if $verbose
     checked_dir.write_checksum_file
   end
 end
@@ -426,7 +466,7 @@ def main(args)
       $check_dirs_only = true
       args.shift
     when '--force'
-      $force_rebuild = true
+      $force_update = true
       args.shift
     else
       break
