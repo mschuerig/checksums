@@ -96,7 +96,7 @@ module Checksums
           case 
           when e_file == a_file
             if e_hash == a_hash
-              callback.item_unchanged(directory, e_file, e_hash, a_hash)
+              callback.item_unchanged(directory, e_file, e_hash)
             else
               callback.item_changed(directory, e_file, e_hash, a_hash)
             end
@@ -191,10 +191,10 @@ module Checksums
     end
     
     def verify_checksums(&block)
-      verification_context = VerificationContext.new(block)
+      verification_callbacks = VerificationCallbacks.new(block)
       catch(:skip_checksum_comparison) do
-        expected = read_checksums(verification_context)
-        expected.report_changes(checksums, verification_context)
+        expected = read_checksums(verification_callbacks)
+        expected.report_changes(checksums, verification_callbacks)
       end
     end
     
@@ -227,15 +227,15 @@ module Checksums
       GPGME::clearsign(checksums.formatted, :signers => @signer.signers)
     end
     
-    def read_checksums(verification_context = VerificationContext.new)
+    def read_checksums(verification_callbacks = VerificationCallbacks.new)
       return Checksums.for_unchecked_directory(@dir) unless File.file?(@checksum_file)
       signed_sums = File.read(@checksum_file)
       verified_checksums = verify_signature(signed_sums)
       
       if verified_checksums[:valid]
-        verification_context.valid_signature(@dir, @signer, verified_checksums[:message])
+        verification_callbacks.valid_signature(@dir, @signer, verified_checksums[:message])
       else
-        verification_context.invalid_signature(@dir, @signer, verified_checksums[:message])
+        verification_callbacks.invalid_signature(@dir, @signer, verified_checksums[:message])
       end
       
       Checksums.from_formatted_checksums(@dir, verified_checksums[:checksums])
@@ -313,66 +313,31 @@ module Checksums
 
   private
     
-  class VerificationContext
+  class VerificationCallbacks
     def initialize(handlers = nil)
       instance_eval(&handlers) if handlers
     end
-    
-    def on_valid_signature(&block)
-      @_valid_signature_handler = block
-    end
-    def valid_signature(dir, signer, message)
-      @_valid_signature_handler && @_valid_signature_handler[dir, signer, message]
-    end
 
-    def on_invalid_signature(&block)
-      @_invalid_signature_handler = block
-    end
-    def invalid_signature(dir, signer, message)
-      @_invalid_signature_handler && @_invalid_signature_handler[dir, signer, message]
-    end
-    
-    def on_directory_unchanged(&block)
-      @_directory_unchanged_handler = block
-    end
-    def directory_unchanged(dir)
-      @_directory_unchanged_handler && @_directory_unchanged_handler[dir]
-    end
-
-    def on_directory_changed(&block)
-      @_directory_changed_handler = block
-    end
-    def directory_changed(dir)
-      @_directory_changed_handler && @_directory_changed_handler[dir]
+    def self.define_callback(name, arg_count)
+      args = (1..arg_count).map { |i| "arg#{i}" }.join(', ')
+      class_eval <<-END
+        def on_#{name}(&block)
+          @_#{name}_handler = block
+        end
+        def #{name}(#{args})
+          @_#{name}_handler && @_#{name}_handler.call(#{args})
+        end
+      END
     end
     
-    def on_item_unchanged(&block)
-      @_item_unchanged_handler = block
-    end
-    def item_unchanged(dir, file, expected_hash, actual_hash)
-      @_item_unchanged_handler && @_item_unchanged_handler[dir, file, expected_hash, actual_hash]
-    end
-
-    def on_item_changed(&block)
-      @_item_changed_handler = block
-    end
-    def item_changed(dir, file, expected_hash, actual_hash)
-      @_item_changed_handler && @_item_changed_handler[dir, file, expected_hash, actual_hash]
-    end
-    
-    def on_item_added(&block)
-      @_item_added_handler = block
-    end
-    def item_added(dir, file)
-      @_item_added_handler && @_item_added_handler[dir, file]
-    end
-    
-    def on_item_removed(&block)
-      @_item_removed_handler = block
-    end
-    def item_removed(dir, file)
-      @_item_removed_handler && @_item_removed_handler[dir, file]
-    end
+    define_callback :valid_signature, 3
+    define_callback :invalid_signature, 3
+    define_callback :directory_unchanged, 1
+    define_callback :directory_changed, 1
+    define_callback :item_unchanged, 3
+    define_callback :item_changed, 4
+    define_callback :item_added, 2
+    define_callback :item_removed, 2
   end
 end
 
