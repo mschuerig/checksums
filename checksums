@@ -49,6 +49,17 @@ module Checksums
   VERSION = '0.1'
   CHECKSUM_FILENAME = '.checksums'
 
+  CALLBACKS = [
+    [ :valid_signature, 3 ],
+    [ :invalid_signature, 3 ],
+    [ :directory_unchanged, 1 ],
+    [ :directory_changed, 1 ],
+    [ :item_unchanged, 3 ],
+    [ :item_changed, 4 ],
+    [ :item_added, 2 ],
+    [ :item_removed, 2 ]
+  ]
+
   class Checksums
     attr_reader :directory, :checksums
     
@@ -74,13 +85,13 @@ module Checksums
       checksums == other.checksums
     end
     
-    def report_changes(other, callback)
+    def report_changes(other, callbacks)
       compare_items = catch(:skip_item_comparison) do
         if @checksums == other.checksums
-          callback.directory_unchanged(directory)
+          callbacks.notify_directory_unchanged(directory)
           false
         else
-          callback.directory_changed(directory)
+          callbacks.notify_directory_changed(directory)
           true
         end
       end
@@ -96,17 +107,17 @@ module Checksums
           case 
           when e_file == a_file
             if e_hash == a_hash
-              callback.item_unchanged(directory, e_file, e_hash)
+              callbacks.notify_item_unchanged(directory, e_file, e_hash)
             else
-              callback.item_changed(directory, e_file, e_hash, a_hash)
+              callbacks.notify_item_changed(directory, e_file, e_hash, a_hash)
             end
             e_file, e_hash = expecteds.shift
             a_file, a_hash = actuals.shift
           when a_file.nil? || e_file < a_file
-            callback.item_removed(directory, e_file)
+            callbacks.notify_item_removed(directory, e_file)
             e_file, e_hash = expecteds.shift
           when e_file.nil? || a_file < e_file
-            callback.item_added(directory, a_file)
+            callbacks.notify_item_added(directory, a_file)
             a_file, a_hash = actuals.shift
           end
         end
@@ -191,10 +202,10 @@ module Checksums
     end
     
     def verify_checksums(&block)
-      verification_callbacks = VerificationCallbacks.new(block)
+      callbacks = VerificationCallbacks.new(&block)
       catch(:skip_checksum_comparison) do
-        expected = read_checksums(verification_callbacks)
-        expected.report_changes(checksums, verification_callbacks)
+        expected = read_checksums(callbacks)
+        expected.report_changes(checksums, callbacks)
       end
     end
     
@@ -227,15 +238,16 @@ module Checksums
       GPGME::clearsign(checksums.formatted, :signers => @signer.signers)
     end
     
-    def read_checksums(verification_callbacks = VerificationCallbacks.new)
+    def read_checksums(callbacks = VerificationCallbacks.new)
       return Checksums.for_unchecked_directory(@dir) unless File.file?(@checksum_file)
+      
       signed_sums = File.read(@checksum_file)
       verified_checksums = verify_signature(signed_sums)
       
       if verified_checksums[:valid]
-        verification_callbacks.valid_signature(@dir, @signer, verified_checksums[:message])
+        callbacks.notify_valid_signature(@dir, @signer, verified_checksums[:message])
       else
-        verification_callbacks.invalid_signature(@dir, @signer, verified_checksums[:message])
+        callbacks.notify_invalid_signature(@dir, @signer, verified_checksums[:message])
       end
       
       Checksums.from_formatted_checksums(@dir, verified_checksums[:checksums])
@@ -314,30 +326,22 @@ module Checksums
   private
     
   class VerificationCallbacks
-    def initialize(handlers = nil)
-      instance_eval(&handlers) if handlers
+    def initialize
+      yield self if block_given?
     end
 
-    def self.define_callback(name, arg_count)
+    CALLBACKS.each do |(name, arg_count)|
       args = (1..arg_count).map { |i| "arg#{i}" }.join(', ')
       class_eval <<-END
-        def on_#{name}(&block)
+        def #{name}(&block)
           @_#{name}_handler = block
         end
-        def #{name}(#{args})
+        def notify_#{name}(#{args})
           @_#{name}_handler && @_#{name}_handler.call(#{args})
         end
       END
     end
     
-    define_callback :valid_signature, 3
-    define_callback :invalid_signature, 3
-    define_callback :directory_unchanged, 1
-    define_callback :directory_changed, 1
-    define_callback :item_unchanged, 3
-    define_callback :item_changed, 4
-    define_callback :item_added, 2
-    define_callback :item_removed, 2
   end
 end
 
@@ -368,15 +372,15 @@ def verify_checksums(root_dirs)
   puts "Verifying checksums..." if $verbose
   dirs(root_dirs).each do |checked_dir|
 
-    checked_dir.verify_checksums do
-      on_valid_signature do |dir, signer, message|
+    checked_dir.verify_checksums do |on|
+      on.valid_signature do |dir, signer, message|
         if $check_signatures_only
           puts "Valid signature on #{dir}" if $verbose
           throw :skip_checksum_comparison
         end
       end
       
-      on_invalid_signature do |dir, signer, message|
+      on.invalid_signature do |dir, signer, message|
         puts "Invalid signature on #{dir}."
         puts "Expected signature from #{signer}"
         puts "Got: #{message}"
@@ -384,26 +388,26 @@ def verify_checksums(root_dirs)
         throw :skip_checksum_comparison if $check_signatures_only
       end
       
-      on_directory_unchanged do |dir|
+      on.directory_unchanged do |dir|
         puts "unchanged #{dir}" if $verbose
       end
       
-      on_directory_changed do |dir|
+      on.directory_changed do |dir|
         if $check_dirs_only
           puts "DIRECTORY CHANGED #{dir}"
           throw :skip_item_comparison
         end
       end
       
-      on_item_changed do |dir, file, expected_hash, actual_hash|
+      on.item_changed do |dir, file, expected_hash, actual_hash|
         puts "ITEM CHANGED #{File.join(dir, file)}"
       end
       
-      on_item_added do |dir, file|
+      on.item_added do |dir, file|
         puts "ITEM ADDED #{File.join(dir, file)}"
       end
 
-      on_item_removed do |dir, file|
+      on.item_removed do |dir, file|
         puts "ITEM REMOVED #{File.join(dir, file)}"
       end
     end
