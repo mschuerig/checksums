@@ -1,0 +1,451 @@
+#! /usr/bin/ruby
+
+### TODO
+#
+# $ checksums { update | verify } [--verbose] [--key <signing key>] <directory>...
+#
+# * use optparse
+# * --exclude <filename pattern>
+# * checksum for directories
+#   use hash for dir/.checksums? -- requires post-order traversal
+#
+
+require 'digest/md5'
+require 'find'
+require 'gpgme'
+
+CHECKSUM_FILENAME = '.checksums'
+
+
+$verbose = false
+$check_signatures_only = false
+$check_dirs_only = false
+$signer = nil
+$force_rebuild = false
+
+
+class Checksums
+  attr_reader :directory, :checksums
+  
+  def self.for_files(dir, paths)
+    self.new(dir, checksums_from_paths(paths))
+  end
+  
+  def self.from_formatted_checksums(dir, data)
+    self.new(dir, parse_formatted_checksums(data))
+  end
+
+  def formatted
+    checksums.map { |path, hash|
+      "#{hash}  #{path}"
+    }.join("\n") + "\n"
+  end
+  
+  def ==(other)
+    checksums == other.checksums
+  end
+  
+  def report_changes(other, callback)
+    compare_items = catch(:skip_item_comparison) do
+      if @checksums == other.checksums
+        callback.directory_unchanged(directory)
+        false
+      else
+        callback.directory_changed(directory)
+        true
+      end
+    end
+
+    if compare_items
+      expecteds = @checksums.dup
+      actuals   = other.checksums.dup
+      
+      e_file, e_hash = expecteds.shift
+      a_file, a_hash = actuals.shift
+      
+      until e_file.nil? && a_file.nil? do
+        case e_file <=> a_file
+        when 0:
+          if e_hash == a_hash
+            callback.item_unchanged(directory, e_file, e_hash, a_hash)
+          else
+            callback.item_changed(directory, e_file, e_hash, a_hash)
+          end
+          e_file, e_hash = expecteds.shift
+          a_file, a_hash = actuals.shift
+        when -1:
+          callback.item_removed(directory, e_file)
+          e_file, e_hash = expecteds.shift
+        when 1:
+          callback.item_added(directory, a_file)
+          a_file, a_hash = actuals.shift
+        end
+      end
+    end
+  end
+  
+  def inspect
+    checksums.inspect
+  end
+  
+  private
+  
+  def initialize(dir, checksums)
+    @directory, @checksums = dir, checksums
+  end
+  
+  def self.checksums_from_paths(paths)
+    paths.inject([]) do |sums, path|
+      stat = File.lstat(path)
+      hash = nil
+      case
+      when stat.symlink?
+        hash = Digest::MD5.hexdigest(File.readlink(path))
+      when stat.directory?
+        hash = '' ### TODO
+      when stat.file?
+        hash = Digest::MD5.file(path).hexdigest
+      end
+      sums << [ File.basename(path), hash ]
+      sums
+    end.sort
+  end
+
+  def self.parse_formatted_checksums(data)
+    data.lines.map { |l|
+      hash, file = l.chomp.split('  ', 2)
+      [ file, hash ]
+    }
+  end
+end
+
+
+class CheckedRootDirs
+  include Enumerable
+  
+  def initialize(roots, signer)
+    @roots = roots.map { |root| File.expand_path(root) }
+    @signer = signer
+  end
+  
+  def each
+    Find.find(*@roots) do |entity|
+      stat = File.lstat(entity)
+      yield CheckedDir.new(entity, stat, @signer) if stat.directory?
+    end
+  end
+end
+
+
+class CheckedDir
+  def initialize(dir, stat = File.lstat(dir), signer = nil)
+    @dir, @stat, @signer = dir, stat, (signer || Signer.null_object)
+    @checksum_file = File.join(@dir, CHECKSUM_FILENAME)
+  end
+  
+  def ignored?
+    empty?
+  end
+  
+  def needs_update?
+    !File.exist?(@checksum_file) || (File.mtime(@checksum_file) < @stat.mtime)
+  end
+  
+  def write_checksum_file
+    sums = signed_checksums
+    File.open(@checksum_file, "w") do |f|
+      f.chown(nil, Process.egid) # override possible SGID on directory
+      f.chmod(0644) # rw-r--r--
+      f.write(sums)
+    end
+  end
+  
+  def verify_checksums(&block)
+    verification_context = VerificationContext.new(block)
+    catch(:skip_checksum_comparison) do
+      expected = read_checksums(verification_context)
+      expected.report_changes(checksums, verification_context)
+    end
+  end
+  
+  def delete_checksum_file
+    File.delete(@checksum_file) if File.exist?(@checksum_file)
+  end
+  
+  def to_s
+    @dir
+  end
+
+  private
+  
+  class VerificationContext
+    def initialize(handlers)
+      instance_eval(&handlers)
+    end
+    
+    def on_valid_signature(&block)
+      @_valid_signature_handler = block
+    end
+    def valid_signature(dir, signer, message)
+      @_valid_signature_handler && @_valid_signature_handler[dir, signer, message]
+    end
+
+    def on_invalid_signature(&block)
+      @_invalid_signature_handler = block
+    end
+    def invalid_signature(dir, signer, message)
+      @_invalid_signature_handler && @_invalid_signature_handler[dir, signer, message]
+    end
+    
+    def on_directory_unchanged(&block)
+      @_directory_unchanged_handler = block
+    end
+    def directory_unchanged(dir)
+      @_directory_unchanged_handler && @_directory_unchanged_handler[dir]
+    end
+
+    def on_directory_changed(&block)
+      @_directory_changed_handler = block
+    end
+    def directory_changed(dir)
+      @_directory_changed_handler && @_directory_changed_handler[dir]
+    end
+    
+    def on_item_unchanged(&block)
+      @_item_unchanged_handler = block
+    end
+    def item_unchanged(dir, file, expected_hash, actual_hash)
+      @_item_unchanged_handler && @_item_unchanged_handler[dir, file, expected_hash, actual_hash]
+    end
+
+    def on_item_changed(&block)
+      @_item_changed_handler = block
+    end
+    def item_changed(dir, file, expected_hash, actual_hash)
+      @_item_changed_handler && @_item_changed_handler[dir, file, expected_hash, actual_hash]
+    end
+    
+    def on_item_added(&block)
+      @_item_added_handler = block
+    end
+    def item_added(dir, file)
+      @_item_added_handler && @_item_added_handler[dir, file]
+    end
+    
+    def on_item_removed(&block)
+      @_item_removed_handler = block
+    end
+    def item_removed(dir, file)
+      @_item_removed_handler && @_item_removed_handler[dir, file]
+    end
+  end
+  
+  def empty?
+    entries.empty?
+  end
+  
+  def entries
+    @entries ||=
+      Dir.entries(@dir).reject { |f| f == '.' || f == '..' || f == CHECKSUM_FILENAME }.map { |f|
+        File.join(@dir, f)
+      }
+  end
+
+  def checksums
+    Checksums.for_files(@dir, entries)
+  end
+  
+  def signed_checksums
+    GPGME::clearsign(checksums.formatted, :signers => @signer.signers)
+  end
+  
+  def read_checksums(verification_context)
+    signed_sums = File.read(@checksum_file)
+    verified_checksums = verify_signature(signed_sums)
+    
+    if verified_checksums[:valid]
+      verification_context.valid_signature(@dir, @signer, verified_checksums[:message])
+    else
+      verification_context.invalid_signature(@dir, @signer, verified_checksums[:message])
+    end
+    
+    Checksums.from_formatted_checksums(@dir, verified_checksums[:checksums])
+  end
+
+  def verify_signature(sums)
+    {}.tap do |result|
+      result[:checksums]  = GPGME::verify(sums) do |signature|
+        result[:valid]    = @signer.valid_signature?(signature)
+        result[:message]  = signature.to_s
+      end
+    end
+  end
+end
+
+
+class Signer
+  def initialize(signer = nil)
+    @signer = signer
+  end
+  
+  def signers
+    @signer ? [signer_key] : nil
+  end
+  
+  def valid_signature?(signature)
+    (GPGME::gpgme_err_code(signature.status) == GPGME::GPG_ERR_NO_ERROR) &&
+        acceptable_signature?(signature)
+  end
+  
+  def acceptable_signature?(signature)
+    acceptable_keyids.include?(signature.fingerprint[-16..-1])
+  end
+  
+  def to_s
+    keys = acceptable_keys.map { |key|
+      "#{key.subkeys[0].keyid} #{key.uids[0].uid}"
+    }
+    (keys.length > 1 ? 'any of ' : '') + keys.join(', ')
+  end
+  
+  def self.null_object
+    @null_object ||= NullSigner.new
+  end
+  
+  private
+  
+  class NullSigner
+    def signers; nil; end
+    def valid_signature?(s); true; end
+    def acceptable_signature?(s); true; end
+    def to_s; "Null Signer"; end
+  end
+  
+  def signer_key
+    @signer_key ||= resolve_key(@signer)
+  end
+  
+  def resolve_key(key_or_name)
+    GPGME::check_version({}) # required to ensure GPGME is initialized properly
+    GPGME::resolve_keys(key_or_name, true, [:sign]).first
+  end
+  
+  def acceptable_keys
+    @acceptable_keys ||= begin
+      GPGME::check_version({}) # required to ensure GPGME is initialized properly
+      GPGME::list_keys(@signer || '', true, [:sign])
+    end
+  end
+
+  def acceptable_keyids
+    @acceptable_keyids ||= acceptable_keys.map { |k| k.subkeys[0].keyid }
+  end
+end
+
+
+def dirs(root_dirs)
+  CheckedRootDirs.new(root_dirs, $signer).reject(&:ignored?)
+end
+
+def update_checksums(root_dirs)
+  puts "Updating checksums..." if $verbose
+  dirs(root_dirs).select { |d| $force_rebuild || d.needs_update? }.each do |checked_dir|
+    puts checked_dir if $verbose
+    checked_dir.write_checksum_file
+  end
+end
+
+def verify_checksums(root_dirs)
+  puts "Verifying checksums..." if $verbose
+  dirs(root_dirs).each do |checked_dir|
+
+    checked_dir.verify_checksums do
+      on_valid_signature do |dir, signer, message|
+        if $check_signatures_only
+          puts "Valid signature on #{dir}" if $verbose
+          throw :skip_checksum_comparison
+        end
+      end
+      
+      on_invalid_signature do |dir, signer, message|
+        puts "Invalid signature on #{dir}."
+        puts "Expected signature from #{signer}"
+        puts "Got: #{message}"
+        puts
+        throw :skip_checksum_comparison if $check_signatures_only
+      end
+      
+      on_directory_unchanged do |dir|
+        puts "unchanged #{dir}" if $verbose
+      end
+      
+      on_directory_changed do |dir|
+        if $check_dirs_only
+          puts "DIRECTORY CHANGED #{dir}"
+          throw :skip_item_comparison
+        end
+      end
+      
+      on_item_changed do |dir, file, expected_hash, actual_hash|
+        puts "ITEM CHANGED #{File.join(dir, file)}"
+      end
+      
+      on_item_added do |dir, file|
+        puts "ITEM ADDED #{File.join(dir, file)}"
+      end
+
+      on_item_removed do |dir, file|
+        puts "ITEM REMOVED #{File.join(dir, file)}"
+      end
+    end
+  end
+end
+
+
+def main(args)
+  command = nil
+  
+  loop do
+    case args.first
+    when 'update'
+      command = :update
+      args.shift
+    when 'verify'
+      command = :verify
+      args.shift
+    when '--verbose'
+      $verbose = true
+      args.shift
+    when '--signer'
+      args.shift
+      $signer = Signer.new(args.shift)
+    when '--signatures-only'
+      $check_signatures_only = true
+      args.shift
+    when '--dirs-only'
+      $check_dirs_only = true
+      args.shift
+    when '--force'
+      $force_rebuild = true
+      args.shift
+    else
+      break
+    end
+  end
+  
+  $signer ||= Signer.new
+  
+  case command
+  when :update
+    update_checksums args
+  when :verify
+    verify_checksums args
+  else
+    $stderr.puts 'Please specify a command, one of `update` and `verify`.'
+  end
+end
+
+
+if $0 == __FILE__
+  main(ARGV)
+end
