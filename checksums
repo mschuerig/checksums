@@ -7,6 +7,7 @@
 # * --exclude <filename pattern>
 # * checksum for directories
 #   use hash for dir/.checksums? -- requires post-order traversal
+#   -> trigger update of parent directory
 #
 
 require 'digest/md5'
@@ -58,7 +59,7 @@ module Checksums
     [ :item_changed, 4 ],
     [ :item_added, 2 ],
     [ :item_removed, 2 ]
-  ]
+  ].freeze
 
   class Checksums
     attr_reader :directory, :checksums
@@ -113,12 +114,14 @@ module Checksums
             end
             e_file, e_hash = expecteds.shift
             a_file, a_hash = actuals.shift
-          when a_file.nil? || e_file < a_file
+          when a_file.nil? || e_file && (e_file < a_file)
             callbacks.notify_item_removed(directory, e_file)
             e_file, e_hash = expecteds.shift
-          when e_file.nil? || a_file < e_file
+          when e_file.nil? || a_file && (a_file < e_file)
             callbacks.notify_item_added(directory, a_file)
             a_file, a_hash = actuals.shift
+          else
+            raise 'There is a fault in the comparison algorithm.'
           end
         end
       end
@@ -180,7 +183,7 @@ module Checksums
     def initialize(dir, signer = nil)
       @dir            = dir
       @stat           = File.lstat(dir)
-      @signer         = signer || Signer.null_object
+      @signer         = signer || Signer.new
       @checksum_file  = File.join(@dir, CHECKSUM_FILENAME)
     end
     
