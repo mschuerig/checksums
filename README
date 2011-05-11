@@ -1,0 +1,44 @@
+
+Checksums
+=========
+
+Create and verify GPG-signed MD5 checksums for all files in a
+directory tree.
+
+
+Rationale
+---------
+
+The general purpose of creating checksums for files and comparing
+them over time is to determine whether files have changed. Either
+accidentally or maliciously.
+
+Several intrusion detection systems already exist that serve this
+purpose, among other things. So why this script?
+
+* I don't want to bother with the complexities of an 
+  enterprise-grade IDS.
+
+* I don't want a central database of checksums.
+  Instead, I want one checksum file (.checksums) per directory,
+  in order to be able to easily copy directories around and still
+  be able to verify their checksums.
+
+* Incremental creation/update of checksums.
+  Assuming that I/you trust data integrity on the system where
+  the checksums are generated.
+
+
+Prerequisites
+-------------
+
+- ruby
+- gpgme ruby bindings
+ - either the gpgme gem
+ - or the Debian package libgpgme-ruby
+
+
+Usage
+-----
+
+TODO
