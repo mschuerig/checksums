@@ -25,16 +25,15 @@ class ChecksumsTest < Test::Unit::TestCase
   context "in a checksummed directory" do
     setup do
       write_checksums(@root_dir)
+      @checked = CheckedDir.new(@root_dir)
     end
     
     test "update is not necessary" do
-      d = CheckedDir.new(@root_dir)
-      assert !d.needs_update?
+      assert !@checked.needs_update?
     end
     
     test "checksums verify" do
-      d = CheckedDir.new(@root_dir)
-      d.verify_checksums do |on|
+      @checked.verify_checksums do |on|
         flunk_all(on)
         expect(on, :valid_signature)
         expect(on, :directory_unchanged)
@@ -58,53 +57,69 @@ class ChecksumsTest < Test::Unit::TestCase
     context "with an added file" do
       setup do
         file 'worzel'
-        backdate CheckedDir.new(@root_dir).checksum_file
+        @checked = CheckedDir.new(@root_dir)
+        backdate @checked.checksum_file
       end
 
       test "update is necessary" do
-        d = CheckedDir.new(@root_dir)
-        assert d.needs_update?
+        assert @checked.needs_update?
       end
 
-      test "the file is noticed" do
-        d = CheckedDir.new(@root_dir)
-        d.verify_checksums do |on|
+      test "the added file is noticed" do
+        @checked.verify_checksums do |on|
           flunk_all(on)
-          expect(on, :valid_signature)
-          expect(on, :directory_changed)
-          ignore(on, :item_unchanged)
+          ignore(on, :valid_signature, :item_unchanged)
+          expect(on, :directory_changed, @root_dir)
           expect(on, :item_added, @root_dir, 'worzel')
         end
       end
     end
 
     context "with a removed file" do
-      test "the file is noticed" do
+      setup do
         rm_file 'baz'
-        
-        d = CheckedDir.new(@root_dir)
-        d.verify_checksums do |on|
+        @checked = CheckedDir.new(@root_dir)
+      end
+      
+      test "the removed file is noticed" do
+        @checked.verify_checksums do |on|
           flunk_all(on)
-          expect(on, :valid_signature)
-          expect(on, :directory_changed)
+          ignore(on, :valid_signature, :item_unchanged)
+          expect(on, :directory_changed, @root_dir)
           expect(on, :item_removed, @root_dir, 'baz')
-          ignore(on, :item_unchanged)
         end
       end
     end
 
     context "with a changed file" do
-      test "the file is noticed" do
+      setup do
         file 'baz', 'going thru changes'
-        
-        d = CheckedDir.new(@root_dir)
-        d.verify_checksums do |on|
+        @checked = CheckedDir.new(@root_dir)
+      end
+      
+      test "the changed file is noticed" do
+        @checked.verify_checksums do |on|
           flunk_all(on)
-          expect(on, :valid_signature)
-          expect(on, :directory_changed)
+          ignore(on, :valid_signature, :item_unchanged)
+          expect(on, :directory_changed, @root_dir)
           expect(on, :item_changed, @root_dir,
                 'baz', '73feffa4b7f6bb68e44cf984c85f6e88', 'ad769fd2bc30024dc4d636a978a4f011')
-          ignore(on, :item_unchanged)
+        end
+      end
+    end
+    
+    context "with an added empty sub-directory" do
+      setup do
+        directory "newdir"
+        @checked = CheckedDir.new(@root_dir)
+      end
+      
+      test "the added directory is noticed" do
+        @checked.verify_checksums do |on|
+          flunk_all(on)
+          ignore(on, :valid_signature, :item_unchanged)
+          expect(on, :directory_changed)
+          expect(on, :item_added, @root_dir, 'newdir')
         end
       end
     end
@@ -118,9 +133,6 @@ class ChecksumsTest < Test::Unit::TestCase
   #
   
   
-  def test_root_dir_without
-  end
-  
   private
 
   def flunk_all(on)
@@ -133,20 +145,26 @@ class ChecksumsTest < Test::Unit::TestCase
 
   def expect(on, callback, *expected_args)
     @called ||= {}
-    @called[[callback, *expected_args]] = [false]
+    @called[[callback, *expected_args]] = false
     on.send(callback) do |*actual_args|
-      @called[[callback, *actual_args]] = true
+      if expected_args.empty?
+        @called[[callback]] = true
+      else
+        @called[[callback, *actual_args]] = true
+      end
     end
   end
   
-  def ignore(on, callback)
-    on.send(callback) do |*args|
+  def ignore(on, *callbacks)
+    callbacks.each do |callback|
+      on.send(callback) do |*args|
+      end
     end
   end
   
   def validate_expectations
     (@called || {}).each do |callback, called|
-      assert called, "callback #{callback} was not called"
+      assert called, "callback #{callback.inspect} was not called"
     end
   end
   
