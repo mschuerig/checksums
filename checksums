@@ -366,7 +366,7 @@ end
 def update_checksums(root_dirs)
   puts "Updating checksums..." if $verbose
   dirs(root_dirs).select { |d| $force_update || d.needs_update? }.each do |checked_dir|
-    put schecked_dir if $verbose
+    puts checked_dir if $verbose
     checked_dir.write_checksum_file
   end
 end
@@ -436,12 +436,6 @@ def main(args)
 
   opts = OptionParser.new
   opts.banner = "Usage: #{opts.program_name} { update | verify } [options] directory..."
-  opts.on('update', "Update checksum files.") {
-    command = :update
-  }
-  opts.on('verify', "Verify checksum files.") {
-    command = :verify
-  }
   opts.on('-s KEY', '--signer KEY', String, "Key used for signing and verifying signatures.") { |val|
     $signer = Signer.new(val)
   }
