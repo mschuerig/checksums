@@ -74,7 +74,7 @@ class ChecksumsTest < Test::Unit::TestCase
     
     context "with an added file" do
       setup do
-        file 'worzel'
+        file 'added_file'
         @checked = CheckedDir.new(@root_dir)
         backdate @checked.checksum_file
       end
@@ -88,8 +88,13 @@ class ChecksumsTest < Test::Unit::TestCase
           flunk_all(on)
           ignore(on, :valid_signature, :item_unchanged)
           expect(on, :directory_changed, @root_dir)
-          expect(on, :item_added, @root_dir, 'worzel')
+          expect(on, :item_added, @root_dir, 'added_file')
         end
+      end
+
+      test "added_items" do
+        changes = @checked.verify_checksums
+        assert_equal ['added_file'], changes.added_items
       end
     end
 
@@ -107,12 +112,19 @@ class ChecksumsTest < Test::Unit::TestCase
           expect(on, :item_removed, @root_dir, 'baz')
         end
       end
+
+      test "removed_items" do
+        changes = @checked.verify_checksums
+        assert_equal ['baz'], changes.removed_items
+      end
     end
 
     context "with a changed file" do
       setup do
         file 'baz', 'going thru changes'
         @checked = CheckedDir.new(@root_dir)
+        @expected_hash  = '73feffa4b7f6bb68e44cf984c85f6e88'
+        @actual_hash    = 'ad769fd2bc30024dc4d636a978a4f011'
       end
       
       test "the changed file is noticed" do
@@ -121,8 +133,16 @@ class ChecksumsTest < Test::Unit::TestCase
           ignore(on, :valid_signature, :item_unchanged)
           expect(on, :directory_changed, @root_dir)
           expect(on, :item_changed, @root_dir,
-                'baz', '73feffa4b7f6bb68e44cf984c85f6e88', 'ad769fd2bc30024dc4d636a978a4f011')
+                'baz', @expected_hash, @actual_hash)
         end
+      end
+
+      test "changed_items" do
+        changes = @checked.verify_checksums
+        assert_equal [{ :item           => 'baz',
+                        :expected_hash  => @expected_hash,
+                        :actual_hash    => @actual_hash }],
+            changes.changed_items
       end
     end
     
@@ -163,7 +183,34 @@ class ChecksumsTest < Test::Unit::TestCase
       ### TODO
       
     end
-    
+
+    context "skipping" do
+      setup do
+        @checked = CheckedDir.new(@root_dir)
+      end
+      
+      test "checksum comparison can be skipped" do
+        @checked.verify_checksums do |on|
+          flunk_all(on)
+          on.valid_signature do
+            throw :skip_checksum_comparison
+          end
+        end
+      end
+
+      test "item comparison can be skipped" do
+        file 'added_file'
+        @checked.verify_checksums do |on|
+          flunk_all(on)
+          ignore(on, :valid_signature)
+          on.directory_changed do
+            throw :skip_item_comparison
+          end
+        end
+      end
+    end
+
+
   end
   
   
@@ -171,7 +218,7 @@ class ChecksumsTest < Test::Unit::TestCase
 
     context "with an added file" do
       setup do
-        file 'worzel'
+        file 'added_file'
         @checked = CheckedDir.new(@root_dir)
       end
 
@@ -180,17 +227,17 @@ class ChecksumsTest < Test::Unit::TestCase
           flunk_all(on)
           ignore(on, :valid_signature, :item_unchanged)
           expect(on, :directory_changed, @root_dir)
-          expect(on, :item_added, @root_dir, 'worzel')
+          expect(on, :item_added, @root_dir, 'added_file')
         end
       end
     end
 
   end
+
   
   ### TODO tests for
   # - added, removed, changed directories
   # - upward propagation of checksum updates for changed directories
-  # - skips
   #
   
   
@@ -232,7 +279,6 @@ class ChecksumsTest < Test::Unit::TestCase
   def grow_tree
     @root_dir = Dir.mktmpdir
     @_dir_stack = [@root_dir]
-     @root_dir ### REMOVE
     
     directory 'dir1' do
       file 'foo'

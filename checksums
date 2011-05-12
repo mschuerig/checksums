@@ -103,6 +103,12 @@ module Checksums
       checksums == other.checksums
     end
     
+    def changes(other)
+      Changes.new.tap { |ch|
+        report_changes(other, ch)
+      }.immutable
+    end
+    
     def report_changes(other, callbacks)
       compare_items = catch(:skip_item_comparison) do
         if @checksums == other.checksums
@@ -179,7 +185,6 @@ module Checksums
     end
   end
 
-
   class CheckedRootDirs
     include Enumerable
     
@@ -224,11 +229,18 @@ module Checksums
     end
     
     def verify_checksums(&block)
-      callbacks = VerificationCallbacks.new(&block)
+      if block_given?
+        callbacks = VerificationCallbacks.new(&block)
+      else
+        callbacks = Changes.new(@dir)
+      end
+      
       catch(:skip_checksum_comparison) do
         expected = read_checksums(callbacks)
         expected.report_changes(checksums, callbacks)
       end
+      
+      block_given? ? nil : callbacks
     end
     
     def delete_checksum_file
@@ -365,6 +377,76 @@ module Checksums
     end
     
   end
+
+  class Changes
+    CALLBACKS.each do |(name, arg_count)|
+      class_eval <<-END
+        def notify_#{name}(*)
+        end
+      END
+    end
+    
+    attr_reader :directory, :changed_items, :added_items, :removed_items
+    
+    def initialize(directory)
+      @directory        = directory
+      @changed_items    = []
+      @added_items      = []
+      @removed_items    = []
+      extend(Callbacks)
+    end
+    
+    def immutable
+      # im's IVs are references to self's, thus self's IVs are frozen, too
+      dup.tap { |im|
+        im.instance_variables.each do |iv|
+          im.instance_variable_get(iv).freeze
+        end
+      }.freeze
+    end
+    
+    def valid?
+      @valid_signature
+    end
+
+    def changed?
+      @changed
+    end
+    
+    module Callbacks
+
+      def notify_valid_signature(*)
+        @valid = true
+      end
+      
+      def notify_invalid_signature(*)
+        @valid = false
+      end
+
+      def notify_directory_changed(*)
+        @changed = true
+      end
+      
+      def notify_directory_unchanged(*)
+        @changed = false
+      end
+
+      def notify_item_changed(dir, item, expected_hash, actual_hash)
+        @changed_items << {
+          :item => item, :expected_hash => expected_hash, :actual_hash => actual_hash
+        }
+      end
+      
+      def notify_item_added(dir, item)
+        @added_items << item
+      end
+
+      def notify_item_removed(dir, item)
+        @removed_items << item
+      end
+    end
+  end
+      
 end
 
 
