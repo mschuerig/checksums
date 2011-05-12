@@ -437,7 +437,7 @@ def main(args)
   opts = OptionParser.new
   opts.banner = "Usage: #{opts.program_name} { update | verify } [options] directory..."
   opts.on('-s KEY', '--signer KEY', String, "Key used for signing and verifying signatures.") { |val|
-    $signer = Signer.new(val)
+    $signer = Checksums::Signer.new(val)
   }
   opts.on('-g', '--signatures-only', "Only verify signatures.") {
     $check_signatures_only = true
