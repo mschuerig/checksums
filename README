@@ -42,3 +42,20 @@ Usage
 -----
 
 TODO
+
+
+Pitfalls
+--------
+
+Whose keys are they anyway?
+
+When run as an ordinary user, the script uses that user's keyring.
+
+When run in a root login session, i.e. `su -', not plain `su' or `sudo',
+the script tries to use root's keyring. Possibly unsuccessfully, when
+there's no gpg-agent running for root.
+
+When run via `sudo -E', the keyring of the user running sudo is used!
+
+When run via `sudo', depending on sudo configuration, this is either
+the same as `sudo -E' or it fails when there's no gpg-agent for root.
