@@ -194,11 +194,13 @@ module Checksums
 
 
   class CheckedDir
+    attr_accessor :checksum_file
+    
     def initialize(dir, signer = nil)
       @dir            = dir
       @stat           = File.lstat(dir)
       @signer         = signer || Signer.new
-      @checksum_file  = File.join(@dir, CHECKSUM_FILENAME)
+      @checksum_file  = File.join(@dir, CHECKSUM_FILENAME).freeze
     end
     
     def ignored?

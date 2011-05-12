@@ -1,8 +1,9 @@
 
 require 'rubygems'
-require 'ruby-debug'
+require 'ruby-debug' ### REMOVE
 
 require 'test/unit'
+require 'contest'
 require 'fileutils'
 require 'tmpdir'
 
@@ -12,100 +13,101 @@ require 'checksums'
 class ChecksumsTest < Test::Unit::TestCase
   include Checksums
 
-  def setup
-    @root_dir = Dir.mktmpdir
-    @dirs = [@root_dir]
-    puts @root_dir
+  setup do
+    @root_dir = grow_tree
   end
   
-  def teardown
-    FileUtils.rm_rf(@root_dir)
+  teardown do
+    validate_expectations
+    cut_down_tree
   end
   
-  def test_update_and_verify
-    grow_tree
-    write_checksums(@root_dir)
-    
-    d = CheckedDir.new(@root_dir)
-    d.verify_checksums do |on|
-      flunk_all(on)
-      expect(on, :valid_signature)
-      expect(on, :directory_unchanged)
+  context "in a checksummed directory" do
+    setup do
+      write_checksums(@root_dir)
     end
     
-    validate_expectations
-  end
-  
-  def test_manipulated_checksums_are_noticed
-    grow_tree
-    write_checksums(@root_dir)
+    test "update is not necessary" do
+      d = CheckedDir.new(@root_dir)
+      assert !d.needs_update?
+    end
     
-    edit_checksums('73feffa4b7f6bb68e44cf984c85f6e88', '00000000000000000000000000000000')
-    
-    d = CheckedDir.new(@root_dir)
-    d.verify_checksums do |on|
-      on.invalid_signature do
-        @noticed = true
-        throw :skip_checksum_comparison
+    test "checksums verify" do
+      d = CheckedDir.new(@root_dir)
+      d.verify_checksums do |on|
+        flunk_all(on)
+        expect(on, :valid_signature)
+        expect(on, :directory_unchanged)
       end
     end
     
-    assert @noticed, "Manipulated checksums not noticed."
-  end
-  
-  def test_added_file_is_noticed
-    grow_tree
-    write_checksums(@root_dir)
-    
-    file 'worzel'
-    
-    d = CheckedDir.new(@root_dir)
-    d.verify_checksums do |on|
-      flunk_all(on)
-      expect(on, :valid_signature)
-      expect(on, :directory_changed)
-      ignore(on, :item_unchanged)
-      expect(on, :item_added, @root_dir, 'worzel')
+    test "manipulated checksums are noticed" do
+      edit_checksums('73feffa4b7f6bb68e44cf984c85f6e88', '00000000000000000000000000000000')
+      
+      d = CheckedDir.new(@root_dir)
+      d.verify_checksums do |on|
+        on.invalid_signature do
+          @noticed = true
+          throw :skip_checksum_comparison
+        end
+      end
+      
+      assert @noticed, "Manipulated checksums not noticed."
     end
     
-    validate_expectations
-  end
+    context "with an added file" do
+      setup do
+        file 'worzel'
+        backdate CheckedDir.new(@root_dir).checksum_file
+      end
 
-  def test_removed_file_is_noticed
-    grow_tree
-    write_checksums(@root_dir)
-    
-    rm_file 'baz'
-    
-    d = CheckedDir.new(@root_dir)
-    d.verify_checksums do |on|
-      flunk_all(on)
-      expect(on, :valid_signature)
-      expect(on, :directory_changed)
-      expect(on, :item_removed, @root_dir, 'baz')
-      ignore(on, :item_unchanged)
-    end
-    
-    validate_expectations
-  end
+      test "update is necessary" do
+        d = CheckedDir.new(@root_dir)
+        assert d.needs_update?
+      end
 
-  def test_changed_file_is_noticed
-    grow_tree
-    write_checksums(@root_dir)
-    
-    file 'baz', 'going thru changes'
-    
-    d = CheckedDir.new(@root_dir)
-    d.verify_checksums do |on|
-      flunk_all(on)
-      expect(on, :valid_signature)
-      expect(on, :directory_changed)
-      expect(on, :item_changed, @root_dir,
-             'baz', '73feffa4b7f6bb68e44cf984c85f6e88', 'ad769fd2bc30024dc4d636a978a4f011')
-      ignore(on, :item_unchanged)
+      test "the file is noticed" do
+        d = CheckedDir.new(@root_dir)
+        d.verify_checksums do |on|
+          flunk_all(on)
+          expect(on, :valid_signature)
+          expect(on, :directory_changed)
+          ignore(on, :item_unchanged)
+          expect(on, :item_added, @root_dir, 'worzel')
+        end
+      end
     end
-    
-    validate_expectations
+
+    context "with a removed file" do
+      test "the file is noticed" do
+        rm_file 'baz'
+        
+        d = CheckedDir.new(@root_dir)
+        d.verify_checksums do |on|
+          flunk_all(on)
+          expect(on, :valid_signature)
+          expect(on, :directory_changed)
+          expect(on, :item_removed, @root_dir, 'baz')
+          ignore(on, :item_unchanged)
+        end
+      end
+    end
+
+    context "with a changed file" do
+      test "the file is noticed" do
+        file 'baz', 'going thru changes'
+        
+        d = CheckedDir.new(@root_dir)
+        d.verify_checksums do |on|
+          flunk_all(on)
+          expect(on, :valid_signature)
+          expect(on, :directory_changed)
+          expect(on, :item_changed, @root_dir,
+                'baz', '73feffa4b7f6bb68e44cf984c85f6e88', 'ad769fd2bc30024dc4d636a978a4f011')
+          ignore(on, :item_unchanged)
+        end
+      end
+    end
   end
   
   ### TODO tests for
@@ -113,6 +115,11 @@ class ChecksumsTest < Test::Unit::TestCase
   # - added, removed, changed empty directories
   # - upward propagation of checksum updates for changed directories
   # - skips
+  #
+  
+  
+  def test_root_dir_without
+  end
   
   private
 
@@ -144,6 +151,10 @@ class ChecksumsTest < Test::Unit::TestCase
   end
   
   def grow_tree
+    @root_dir = Dir.mktmpdir
+    @dirs = [@root_dir]
+     @root_dir ### REMOVE
+    
     directory 'dir1' do
       file 'foo'
       directory 'nested1' do
@@ -154,8 +165,14 @@ class ChecksumsTest < Test::Unit::TestCase
     end
     file 'baz'
     directory 'empty'
+    
+    @root_dir
   end
 
+  def cut_down_tree
+    FileUtils.rm_rf(@root_dir)
+  end
+  
   def edit_checksums(target, replacement, where = @root_dir)
     path = File.join(where, CHECKSUM_FILENAME)
     text = File.read(path)
@@ -170,16 +187,19 @@ class ChecksumsTest < Test::Unit::TestCase
   end
   
   def file(name, contents = name)
-    File.open(make_path(name), 'w') do |f|
-      f.write(contents)
+    make_path(name).tap do |path|
+      File.open(path, 'w') do |f|
+        f.write(contents)
+      end
     end
   end
   
   def directory(name)
-    path = make_path(name)
-    Dir.mkdir(path)
-    @dirs.unshift(path)
-    yield if block_given?
+    make_path(name).tap do |path|
+      Dir.mkdir(path)
+      @dirs.unshift(path)
+      yield if block_given?
+    end
   ensure
     @dirs.shift
   end
@@ -187,6 +207,18 @@ class ChecksumsTest < Test::Unit::TestCase
   def rm_file(name)
     File.delete(make_path(name))
   end
+
+  def backdate(*paths)
+    File.utime(0, 0, *paths)
+  end
+#   def touch(*paths)
+#     offset = paths.last.is_a?(Fixnum) ? paths.pop : 0
+#     now = Time.now
+#     paths.each do |path|
+#       t = (offset == 0) ? now : (File.mtime(path) + offset)
+#       File.utime(t, t, path)
+#     end
+#   end
   
   def make_path(name)
     File.join(@dirs.first, name)
