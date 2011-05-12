@@ -59,3 +59,11 @@ When run via `sudo -E', the keyring of the user running sudo is used!
 
 When run via `sudo', depending on sudo configuration, this is either
 the same as `sudo -E' or it fails when there's no gpg-agent for root.
+
+In order to have sudo pass the GPG_AGENT_INFO environment variable
+through to the checksums script, add the following lines to
+/etc/sudoers or to a file in /etc/sudoers.d; use `visudo' or
+`visudo -f' for editing these files.
+
+Cmnd_Alias CHECKSUMS = /usr/local/bin/checksums # or wherever you install the script
+Defaults!CHECKSUMS env_keep+=GPG_AGENT_INFO
