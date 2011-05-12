@@ -22,7 +22,25 @@ class ChecksumsTest < Test::Unit::TestCase
     cut_down_tree
   end
   
-  context "in a checksummed directory" do
+  
+  context "directories" do
+    test "are listed in bottom up order" do
+      dirs = BottomUpDirectories.new(@root_dir).map { |d|
+        d.sub(/^#{@root_dir}/, '')
+      }
+      assert_equal directory_count, dirs.size
+      
+      dirs.each_with_index do |higher, i|
+        dirs[0, i].each do |lower|
+          assert_no_match /^#{lower}/, higher,
+              "Higher directory #{higher} listed before lower directory #{lower}"
+        end
+      end
+    end
+  end
+  
+  
+  context "in a checked directory" do
     setup do
       write_checksums(@root_dir)
       @checked = CheckedDir.new(@root_dir)
@@ -123,11 +141,54 @@ class ChecksumsTest < Test::Unit::TestCase
         end
       end
     end
+
+    context "with a removed empty sub-directory" do
+      setup do
+        rm_directory "empty"
+        @checked = CheckedDir.new(@root_dir)
+      end
+      
+      test "the removed directory is noticed" do
+        @checked.verify_checksums do |on|
+          flunk_all(on)
+          ignore(on, :valid_signature, :item_unchanged)
+          expect(on, :directory_changed)
+          expect(on, :item_removed, @root_dir, 'empty')
+        end
+      end
+    end
+  
+    context "with a changed sub-directory" do
+
+      ### TODO
+      
+    end
+    
+  end
+  
+  
+  context "in an unchecked directory" do
+
+    context "with an added file" do
+      setup do
+        file 'worzel'
+        @checked = CheckedDir.new(@root_dir)
+      end
+
+      test "the added file is noticed" do
+        @checked.verify_checksums do |on|
+          flunk_all(on)
+          ignore(on, :valid_signature, :item_unchanged)
+          expect(on, :directory_changed, @root_dir)
+          expect(on, :item_added, @root_dir, 'worzel')
+        end
+      end
+    end
+
   end
   
   ### TODO tests for
   # - added, removed, changed directories
-  # - added, removed, changed empty directories
   # - upward propagation of checksum updates for changed directories
   # - skips
   #
@@ -170,7 +231,7 @@ class ChecksumsTest < Test::Unit::TestCase
   
   def grow_tree
     @root_dir = Dir.mktmpdir
-    @dirs = [@root_dir]
+    @_dir_stack = [@root_dir]
      @root_dir ### REMOVE
     
     directory 'dir1' do
@@ -213,17 +274,28 @@ class ChecksumsTest < Test::Unit::TestCase
   end
   
   def directory(name)
+    @_directory_count ||= 0
     make_path(name).tap do |path|
       Dir.mkdir(path)
-      @dirs.unshift(path)
+      @_directory_count += 1
+      @_dir_stack.unshift(path)
       yield if block_given?
     end
   ensure
-    @dirs.shift
+    @_dir_stack.shift
   end
   
   def rm_file(name)
     File.delete(make_path(name))
+  end
+  
+  def rm_directory(name)
+    # invalidates @_directory_count
+    FileUtils.rm_rf(make_path(name))
+  end
+  
+  def directory_count
+    (@_directory_count || 0) + 1 # add 1 for root dir
   end
 
   def backdate(*paths)
@@ -239,7 +311,7 @@ class ChecksumsTest < Test::Unit::TestCase
 #   end
   
   def make_path(name)
-    File.join(@dirs.first, name)
+    File.join(@_dir_stack.first, name)
   end
                     
 end

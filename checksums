@@ -28,32 +28,35 @@ require 'digest/md5'
 require 'gpgme'
 
 
-module Directories
-  class << self
+class BottomUpDirectories
+  include Enumerable
+  
+  def initialize(*dirs)
+    @dirs = dirs
+  end
+  
+  def each(&block)
+    each_dir(@dirs, &block)
+  end
 
-    def each_bottom_up(*dirs, &block) # :yield: path
-      each_dir(dirs, &block)
-    end
-
-    private
-    
-    def each_dir(dirs, &block)
-      dirs.each do |dir|
-        begin
-          children = []
-          Dir.open(dir) do |d|
-            d.each do |it|
-              next if it == '.' || it == '..'
-              p = File.join(dir, it)
-              next unless File.exist?(p) && File.lstat(p).directory?
-              children << p
-            end
+  private
+  
+  def each_dir(dirs, &block)
+    dirs.each do |dir|
+      begin
+        children = []
+        Dir.open(dir) do |d|
+          d.each do |it|
+            next if it == '.' || it == '..'
+            p = File.join(dir, it)
+            next unless File.exist?(p) && File.lstat(p).directory?
+            children << p
           end
-          each_dir(children, &block)
-          block[dir]
-        rescue Errno::ENOENT, Errno::EACCES
-          ### really?
         end
+        each_dir(children, &block)
+        block[dir]
+      rescue Errno::ENOENT, Errno::EACCES
+        ### really?
       end
     end
   end
@@ -186,7 +189,7 @@ module Checksums
     end
     
     def each
-      Directories.each_bottom_up(*@roots) do |entity|
+      BottomUpDirectories.new(*@roots).each do |entity|
         yield CheckedDir.new(entity, @signer)
       end
     end
