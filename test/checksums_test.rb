@@ -61,6 +61,7 @@ class ChecksumsTest < Test::Unit::TestCase
     setup do
       write_checksums(@root_dir)
       @checked = CheckedDir.new(@root_dir)
+      antedate(@checked.checksum_file)
     end
     
     test "update is not necessary" do
@@ -91,9 +92,9 @@ class ChecksumsTest < Test::Unit::TestCase
     
     context "with an added file" do
       setup do
-        file 'added_file'
+        f = file 'added_file'
+        antedate(f)
         @checked = CheckedDir.new(@root_dir)
-        backdate @checked.checksum_file
       end
 
       test "update is necessary" do
@@ -367,17 +368,10 @@ class ChecksumsTest < Test::Unit::TestCase
     (@_directory_count || 0) + 1 # add 1 for root dir
   end
 
-  def backdate(*paths)
-    File.utime(0, 0, *paths)
+  def antedate(*paths)
+    t = Time.now + 1
+    File.utime(t, t, *paths)
   end
-#   def touch(*paths)
-#     offset = paths.last.is_a?(Fixnum) ? paths.pop : 0
-#     now = Time.now
-#     paths.each do |path|
-#       t = (offset == 0) ? now : (File.mtime(path) + offset)
-#       File.utime(t, t, path)
-#     end
-#   end
   
   def make_path(name)
     File.join(@_dir_stack.first, name)
