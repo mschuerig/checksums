@@ -379,13 +379,6 @@ module Checksums
   end
 
   class Changes
-    CALLBACKS.each do |(name, arg_count)|
-      class_eval <<-END
-        def notify_#{name}(*)
-        end
-      END
-    end
-    
     attr_reader :directory, :changed_items, :added_items, :removed_items
     
     def initialize(directory)
@@ -397,7 +390,8 @@ module Checksums
     end
     
     def immutable
-      # im's IVs are references to self's, thus self's IVs are frozen, too
+      # im's IVs are references to the objects as are self's,
+      # thus self's IVs are frozen, too.
       dup.tap { |im|
         im.instance_variables.each do |iv|
           im.instance_variable_get(iv).freeze
@@ -414,6 +408,12 @@ module Checksums
     end
     
     module Callbacks
+      CALLBACKS.each do |(name, arg_count)|
+        class_eval <<-END
+          def notify_#{name}(*)
+          end
+        END
+      end
 
       def notify_valid_signature(*)
         @valid = true
