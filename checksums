@@ -454,11 +454,12 @@ if $0 == __FILE__
 
 require 'optparse'
 
-$verbose = false
-$check_signatures_only = false
-$check_dirs_only = false
-$signer = nil
-$force_update = false
+$dry_run                = false
+$verbose                = false
+$check_signatures_only  = false
+$check_dirs_only        = false
+$force_update           = false
+$signer                 = nil
 
 def dirs(root_dirs)
   Checksums::CheckedRootDirs.new(root_dirs, $signer).reject(&:ignored?)
@@ -467,15 +468,19 @@ end
 def update_checksums(root_dirs)
   puts "Updating checksums..." if $verbose
   dirs(root_dirs).select { |d| $force_update || d.needs_update? }.each do |checked_dir|
-    puts checked_dir if $verbose
-    checked_dir.write_checksum_file
+    puts checked_dir if $verbose || $dry_run
+    checked_dir.write_checksum_file unless $dry_run
   end
 end
 
 def verify_checksums(root_dirs)
   puts "Verifying checksums..." if $verbose
   dirs(root_dirs).each do |checked_dir|
-
+    if $dry_run
+      puts checked_dir
+      next
+    end
+    
     checked_dir.verify_checksums do |on|
       on.valid_signature do |dir, signer, message|
         if $check_signatures_only
@@ -537,6 +542,9 @@ def main(args)
 
   opts = OptionParser.new
   opts.banner = "Usage: #{opts.program_name} { update | verify } [options] directory..."
+  opts.on('-n', '--dry-run', "Don't run any commands, just print them.") {
+    $dry_run = true
+  }
   opts.on('-s KEY', '--signer KEY', String, "Key used for signing and verifying signatures.") { |val|
     $signer = Checksums::Signer.new(val)
   }
