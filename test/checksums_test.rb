@@ -5,6 +5,7 @@ require 'ruby-debug' ### REMOVE
 require 'test/unit'
 require 'contest'
 require 'fileutils'
+require 'set'
 require 'tmpdir'
 
 require 'checksums'
@@ -24,18 +25,34 @@ class ChecksumsTest < Test::Unit::TestCase
   
   
   context "directories" do
+
     test "are listed in bottom up order" do
-      dirs = BottomUpDirectories.new(@root_dir).map { |d|
-        d.sub(/^#{@root_dir}/, '')
-      }
+      dirs = strip_root(BottomUpDirectories.new(@root_dir))
       assert_equal directory_count, dirs.size
       
       dirs.each_with_index do |higher, i|
         dirs[0, i].each do |lower|
-          assert_no_match /^#{lower}/, higher,
+          assert_no_match %r{^#{lower}}, higher,
               "Higher directory #{higher} listed before lower directory #{lower}"
         end
       end
+    end
+    
+    test "can exclude top-level directory by path" do
+      dirs = strip_root(BottomUpDirectories.new(@root_dir, :exclude => '/dir1'))
+      assert_equal_elements [ '/empty', '' ], dirs
+    end
+
+    test "can exclude mid-level directory by path" do
+      dirs = strip_root(BottomUpDirectories.new(@root_dir, :exclude => '/dir1/nested1'))
+      assert_equal_elements [ '/empty', '/dir1', '' ], dirs
+    end
+
+    test "can exclude directories by glob pattern" do
+      directory '.ignored'
+      directory 'dir1/nested1/.ignored'
+      dirs = strip_root(BottomUpDirectories.new(@root_dir, :exclude => '**/.ignored'))
+      assert_equal_elements [ '/empty', '/dir1', '/dir1/nested1', '/dir1/nested1/nested2', '' ], dirs
     end
   end
   
@@ -298,6 +315,12 @@ class ChecksumsTest < Test::Unit::TestCase
     FileUtils.rm_rf(@root_dir)
   end
   
+  def strip_root(dirs)
+    dirs.map { |d|
+      d.sub(/^#{@root_dir}/, '')
+    }
+  end
+  
   def edit_checksums(target, replacement, where = @root_dir)
     path = File.join(where, CHECKSUM_FILENAME)
     text = File.read(path)
@@ -359,5 +382,10 @@ class ChecksumsTest < Test::Unit::TestCase
   def make_path(name)
     File.join(@_dir_stack.first, name)
   end
-                    
+
+  def assert_equal_elements(expected, actual, message = nil)
+    e_set = Set.new(expected)
+    a_set = Set.new(actual)
+    assert_equal(e_set, a_set, message)
+  end
 end

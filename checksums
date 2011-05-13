@@ -32,14 +32,21 @@ class BottomUpDirectories
   include Enumerable
   
   def initialize(*dirs)
-    @dirs = dirs
+    options   = dirs.last.is_a?(Hash) ? dirs.pop : {}
+    @dirs     = dirs
+    @excludes = Array(options[:exclude])
   end
   
   def each(&block)
-    each_dir(@dirs, &block)
+    @dirs.each do |d|
+      @root_re = %r{^#{d}}
+      each_dir(d, &block)
+    end
   end
 
   private
+  
+  MATCH_FLAGS = File::FNM_PATHNAME
   
   def each_dir(dirs, &block)
     dirs.each do |dir|
@@ -48,9 +55,13 @@ class BottomUpDirectories
         Dir.open(dir) do |d|
           d.each do |it|
             next if it == '.' || it == '..'
-            p = File.join(dir, it)
-            next unless File.exist?(p) && File.lstat(p).directory?
-            children << p
+            path = File.join(dir, it)
+            next unless File.exist?(path) && File.lstat(path).directory?
+            unless @excludes.empty?
+              match_path = path.sub(@root_re, '')
+              next if @excludes.any? { |excl| File.fnmatch(excl, match_path, MATCH_FLAGS) }
+            end
+            children << path
           end
         end
         each_dir(children, &block)
@@ -188,9 +199,10 @@ module Checksums
   class CheckedRootDirs
     include Enumerable
     
-    def initialize(roots, signer)
-      @roots = roots.map { |root| File.expand_path(root) }
-      @signer = signer
+    def initialize(roots, excludes, signer)
+      @roots    = roots.map { |root| File.expand_path(root) }
+      @roots    << { :exclude => excludes } if excludes
+      @signer   = signer
     end
     
     def each
@@ -459,10 +471,11 @@ $verbose                = false
 $check_signatures_only  = false
 $check_dirs_only        = false
 $force_update           = false
+$excludes               = []
 $signer                 = nil
 
 def dirs(root_dirs)
-  Checksums::CheckedRootDirs.new(root_dirs, $signer).reject(&:ignored?)
+  Checksums::CheckedRootDirs.new(root_dirs, $excludes, $signer).reject(&:ignored?)
 end
 
 def update_checksums(root_dirs)
@@ -541,31 +554,42 @@ def main(args)
   end
 
   opts = OptionParser.new
-  opts.banner = "Usage: #{opts.program_name} { update | verify } [options] directory..."
-  opts.on('-n', '--dry-run', "Don't run any commands, just print them.") {
+  opts.banner = "Usage: #{opts.program_name} { update | verify } [options] directory.."
+  
+  opts.separator "General options."
+  opts.on('-n', '--dry-run', "Don't run any commands, just print them") {
     $dry_run = true
   }
-  opts.on('-s KEY', '--signer KEY', String, "Key used for signing and verifying signatures.") { |val|
+  opts.on('-s KEY', '--signer KEY', String, "Key used for signing and verifying signatures") { |val|
     $signer = Checksums::Signer.new(val)
   }
-  opts.on('-g', '--signatures-only', "Only verify signatures.") {
+  opts.on('-e', '--exclude=PATTERN', "Exclude directories (and their sub-directories)",
+          "matching PATTERN") { |val|
+    $excludes << val
+  }
+  opts.on('-v', '--verbose', "Display extra information") {
+    $verbose = true
+  }
+  opts.on('--version', "Show version") {
+    puts Checksums::VERSION
+    exit
+  }
+  
+  opts.separator "Update options:"
+  opts.on('-f', '--force-rebuild', "Rebuild all checksums") {
+    $force_update = true
+  }
+
+  opts.separator "Verify options:"
+  opts.on('-g', '--signatures-only', "Only verify signatures") {
     $check_signatures_only = true
   }
   opts.on('-d', '--dirs-only', "Only check whether directories are unchanged") {
     $check_dirs_only = true
   }
-  opts.on('-f', '--force-rebuild', "Rebuild all checksums.") {
-    $force_update = true
-  }
-  opts.on('-v', '--verbose', "Display extra information.") {
-    $verbose = true
-  }
-  opts.on_tail('--version', "Show version.") {
-    puts Checksums::VERSION
-    exit
-  }
+
   root_dirs = opts.parse(args)
-  
+
   $signer ||= Checksums::Signer.new
   
   case command
