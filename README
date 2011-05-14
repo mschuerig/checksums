@@ -41,6 +41,10 @@ Prerequisites
 Usage
 -----
 
+All operations work on a given list of directories and
+their sub-directories.
+
+
 Create checksums for one or more directories
 
 $ checksums create directory1 directory2 ...
@@ -66,6 +70,25 @@ for signing and verifying. The key can be given in any form that is
 acceptable to GPG, such as key ID or fingerprint.
 
 $ checksums create --signer 0123456789ABCDEF
+
+
+Directories can be excluded from consideration using the --exclude
+option. This option can be given multiple times.
+
+  $ checksums create --exclude=michael /home
+
+Creates checksums for directories in /home, excluding everything
+below /home/michael.
+
+  $ checksums create --exclude='**/.git' /usr/local/src
+  
+Creates checksums for directories in /usr/local/src, excluding
+.git directories.
+  
+  $ checksums create --exclude='**/.*' .
+
+Creates checksums for the current directory, excluding any "hidden"
+directories whose name starts with `.'.
 
 
 Considerations
@@ -113,3 +136,12 @@ through to the checksums script, add the following lines to
 
 Cmnd_Alias CHECKSUMS = /usr/local/bin/checksums # or wherever you install the script
 Defaults!CHECKSUMS env_keep+=GPG_AGENT_INFO
+
+
+To do
+-----
+
+* Make default behavior non-recursive and add suitable options.
+
+
+Copyright (C) 2011 Michael Schürig <michael@schuerig.de>

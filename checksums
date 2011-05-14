@@ -38,14 +38,14 @@ class BottomUpDirectories
   
   def each(&block)
     @dirs.each do |d|
-      @root_re = %r{^#{d}}
+      @root_re = %r{^#{d}/}
       each_dir(d, &block)
     end
   end
 
   private
   
-  MATCH_FLAGS = File::FNM_PATHNAME
+  MATCH_FLAGS = File::FNM_PATHNAME | File::FNM_DOTMATCH
   
   def each_dir(dirs, &block)
     dirs.each do |dir|

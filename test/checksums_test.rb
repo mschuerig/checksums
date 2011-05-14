@@ -1,6 +1,6 @@
 
-require 'rubygems'
-require 'ruby-debug' ### REMOVE
+#require 'rubygems'
+#require 'ruby-debug'
 
 require 'test/unit'
 require 'contest'
