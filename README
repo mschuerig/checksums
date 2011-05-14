@@ -54,6 +54,18 @@ Update checksums (see considerations below)
 $ checksums verify directory1 directory2 ...
 
 
+When signing checksum files, checksums by default uses the first
+suitable key from your GPG keyring. Such a key must have a private
+key useable for signing.
+
+When verifying checksum files, by default all such keys are considered
+valid.
+
+The --signer option allows to explicity specify a key to be used
+for signing and verifying. The key can be given in any form that is
+acceptable to GPG, such as key ID or fingerprint.
+
+$ checksums create --signer 0123456789ABCDEF
 
 
 Considerations
