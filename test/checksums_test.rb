@@ -195,10 +195,34 @@ class ChecksumsTest < Test::Unit::TestCase
       end
     end
   
-    context "with a changed sub-directory" do
+    context "with a newly checked sub-directory" do
+      setup do
+        write_checksums(@root_dir, 'dir1')
+        antedate(@root_dir, 'dir1')
+      end
 
-      ### TODO
+      context "before update" do
+        test "directory needs to be updated" do
+          assert @checked.needs_update?
+        end
+
+        test "checksum for sub-directory is empty" do
+          assert_equal '', @checked.saved_checksums['dir1']
+        end
+      end
       
+      context "after update" do
+        setup do
+          write_checksums(@root_dir)
+        end
+
+        test "checksum for sub-directory is not empty" do
+          # The exact checksum of the checksum file depends on
+          # the key used for signing it.
+          # TODO consider using the unsigned checksums
+          assert_not_equal '', @checked.saved_checksums['dir1']
+        end
+      end
     end
 
     context "skipping" do
@@ -251,12 +275,6 @@ class ChecksumsTest < Test::Unit::TestCase
 
   end
 
-  
-  ### TODO tests for
-  # - added, removed, changed directories
-  # - upward propagation of checksum updates for changed directories
-  #
-  
   
   private
 
@@ -320,20 +338,26 @@ class ChecksumsTest < Test::Unit::TestCase
       d.sub(/^#{@root_dir}/, '')
     }
   end
-  
-  def edit_checksums(target, replacement, where = @root_dir)
-    path = File.join(where, CHECKSUM_FILENAME)
-    text = File.read(path)
+
+  def read_checksums(*where)
+    where = [@root_dir] if where.empty?
+    path = File.join(File.join(*where), CHECKSUM_FILENAME)
+    [ path, File.read(path) ]
+  end
+
+  def edit_checksums(target, replacement, *where)
+    path, text = read_checksums(*where)
     text.sub!(target, replacement)
     File.open(path, 'w') { |f| f.write(text) }
   end
   
-  def write_checksums(where)
-    d = CheckedDir.new(where)
+  def write_checksums(*where)
+    dir_path = File.join(*where)
+    d = CheckedDir.new(dir_path)
     d.write_checksum_file
-    assert File.file?(File.join(where, CHECKSUM_FILENAME)), 'Checksum file not written'
+    assert File.file?(File.join(dir_path, CHECKSUM_FILENAME)), 'Checksum file not written'
   end
-  
+
   def file(name, contents = name)
     make_path(name).tap do |path|
       File.open(path, 'w') do |f|
@@ -367,9 +391,9 @@ class ChecksumsTest < Test::Unit::TestCase
     (@_directory_count || 0) + 1 # add 1 for root dir
   end
 
-  def antedate(*paths)
+  def antedate(*path)
     t = Time.now + 1
-    File.utime(t, t, *paths)
+    File.utime(t, t, File.join(*path))
   end
   
   def make_path(name)
