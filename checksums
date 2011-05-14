@@ -492,7 +492,6 @@ $dry_run                = false
 $verbose                = false
 $check_signatures_only  = false
 $check_dirs_only        = false
-$force_update           = false
 $excludes               = []
 $signer                 = nil
 
@@ -500,9 +499,17 @@ def dirs(root_dirs)
   Checksums::CheckedRootDirs.new(root_dirs, $excludes, $signer).reject(&:ignored?)
 end
 
+def create_checksums(root_dirs)
+  puts "Creating checksums..." if $verbose
+  dirs(root_dirs).each do |checked_dir|
+    puts checked_dir if $verbose || $dry_run
+    checked_dir.write_checksum_file unless $dry_run
+  end
+end
+
 def update_checksums(root_dirs)
   puts "Updating checksums..." if $verbose
-  dirs(root_dirs).select { |d| $force_update || d.needs_update? }.each do |checked_dir|
+  dirs(root_dirs).select(&:needs_update?).each do |checked_dir|
     puts checked_dir if $verbose || $dry_run
     checked_dir.write_checksum_file unless $dry_run
   end
@@ -564,6 +571,9 @@ def main(args)
   
   loop do
     case args.first
+    when 'create'
+      command = :create
+      args.shift
     when 'update'
       command = :update
       args.shift
@@ -576,7 +586,7 @@ def main(args)
   end
 
   opts = OptionParser.new
-  opts.banner = "Usage: #{opts.program_name} { update | verify } [options] directory.."
+  opts.banner = "Usage: #{opts.program_name} { create | update | verify } [options] directory.."
   
   opts.separator ''
   opts.separator "General options."
@@ -599,12 +609,6 @@ def main(args)
   }
   
   opts.separator ''
-  opts.separator "Update options:"
-  opts.on('-f', '--force-rebuild', "Rebuild all checksums") {
-    $force_update = true
-  }
-
-  opts.separator ''
   opts.separator "Verify options:"
   opts.on('-g', '--signatures-only', "Only verify signatures") {
     $check_signatures_only = true
@@ -618,6 +622,8 @@ def main(args)
   $signer ||= Checksums::Signer.new
   
   case command
+  when :create
+    create_checksums root_dirs
   when :update
     update_checksums root_dirs
   when :verify
