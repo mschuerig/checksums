@@ -41,7 +41,41 @@ Prerequisites
 Usage
 -----
 
-TODO
+Create checksums for one or more directories
+
+$ checksums create directory1 directory2 ...
+
+Verify checksums
+
+$ checksums verify directory1 directory2 ...
+
+Update checksums (see considerations below)
+
+$ checksums verify directory1 directory2 ...
+
+
+
+
+Considerations
+--------------
+
+When updating checksums, new checksums are only calculated for those
+directories where at least one file has a modification timestamp newer
+than that of the checksums file for that directory.
+
+Therefore, if you don't trust the timestamps on your computer, don't
+update checksums, but always create them afresh.
+
+Furthermore, timestamps are only accurate to one second.
+Assume a checksums file for a directory is written and in the same
+second a file in that directory changes, is added or removed.
+An update will not notice this change and so will not write a new
+checksums file.
+
+If files are changing so rapidly that the contents of a directory
+change while the checksums for that same directory are calculated, it
+is not possible to write a consistent checksums file at all.
+In such a case, this tool just might not be appropriate for your needs.
 
 
 Pitfalls

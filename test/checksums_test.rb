@@ -61,7 +61,6 @@ class ChecksumsTest < Test::Unit::TestCase
     setup do
       write_checksums(@root_dir)
       @checked = CheckedDir.new(@root_dir)
-      antedate(@checked.checksum_file)
     end
     
     test "update is not necessary" do
