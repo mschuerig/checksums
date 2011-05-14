@@ -236,12 +236,8 @@ module Checksums
     end
     
     def write_checksum_file
-      sums = signed_checksums
-      File.open(@checksum_file, "w") do |f|
-        f.chown(nil, Process.egid) # override possible SGID on directory
-        f.chmod(0644) # rw-r--r--
-        f.write(sums)
-      end
+      write_file(@checksum_file, signed_checksums)
+      touch_file(@dir)
     end
     
     def verify_checksums(&block)
@@ -319,6 +315,19 @@ module Checksums
           result[:message]  = signature.to_s
         end
       end
+    end
+    
+    def write_file(path, data)
+      File.open(path, "w") do |f|
+        f.chown(nil, Process.egid) # override possible SGID on directory
+        f.chmod(0644) # rw-r--r--
+        f.write(data)
+      end
+    end
+    
+    def touch_file(path)
+      now = Time.now
+      File.utime(now, now, path)
     end
   end
 
