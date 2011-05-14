@@ -1,6 +1,6 @@
 
-#require 'rubygems'
-#require 'ruby-debug'
+require 'rubygems'
+require 'ruby-debug'
 
 require 'test/unit'
 require 'contest'
@@ -39,12 +39,12 @@ class ChecksumsTest < Test::Unit::TestCase
     end
     
     test "can exclude top-level directory by path" do
-      dirs = strip_root(BottomUpDirectories.new(@root_dir, :exclude => '/dir1'))
+      dirs = strip_root(BottomUpDirectories.new(@root_dir, :exclude => 'dir1'))
       assert_equal_elements [ '/empty', '' ], dirs
     end
 
     test "can exclude mid-level directory by path" do
-      dirs = strip_root(BottomUpDirectories.new(@root_dir, :exclude => '/dir1/nested1'))
+      dirs = strip_root(BottomUpDirectories.new(@root_dir, :exclude => 'dir1/nested1'))
       assert_equal_elements [ '/empty', '/dir1', '' ], dirs
     end
 
