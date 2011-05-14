@@ -16,13 +16,6 @@
 # along with this program; if not, write to the Free Software 
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-### TODO
-#
-# * checksum for directories
-#   use hash for dir/.checksums? -- requires post-order traversal
-#   -> trigger update of parent directory
-#
-
 require 'digest/md5'
 require 'gpgme'
 
@@ -200,15 +193,26 @@ module Checksums
   class CheckedRootDirs
     include Enumerable
     
-    def initialize(roots, excludes, signer)
-      @roots    = roots.map { |root| File.expand_path(root) }
-      @roots    << { :exclude => excludes } if excludes
-      @signer   = signer
+    def initialize(roots, recursive, excludes, signer)
+      @roots      = roots.map { |root| File.expand_path(root) }
+      @recursive  = recursive
+      @excludes   = excludes
+      @signer     = signer
     end
     
     def each
-      BottomUpDirectories.new(*@roots).each do |entity|
-        yield CheckedDir.new(entity, @signer)
+      checked_paths.each do |path|
+        yield CheckedDir.new(path, @signer)
+      end
+    end
+
+    private
+
+    def checked_paths
+      if @recursive
+        BottomUpDirectories.new(*(@roots + [{ :exclude => @excludes }]))
+      else
+        @roots
       end
     end
   end
@@ -488,7 +492,10 @@ if $0 == __FILE__
 
 require 'optparse'
 
+Version = Checksums::VERSION
+
 $dry_run                = false
+$recursive              = false
 $verbose                = false
 $check_signatures_only  = false
 $check_dirs_only        = false
@@ -496,7 +503,7 @@ $excludes               = []
 $signer                 = nil
 
 def dirs(root_dirs)
-  Checksums::CheckedRootDirs.new(root_dirs, $excludes, $signer).reject(&:ignored?)
+  Checksums::CheckedRootDirs.new(root_dirs, $recursive, $excludes, $signer).reject(&:ignored?)
 end
 
 def create_checksums(root_dirs)
@@ -593,6 +600,9 @@ def main(args)
   opts.on('-n', '--dry-run', "Don't run any commands, just print them") {
     $dry_run = true
   }
+  opts.on('-r', '--recursive', "process sub-directories recursively") {
+    $recursive = true
+  }
   opts.on('-s KEY', '--signer KEY', String, "Key used for signing and verifying signatures") { |val|
     $signer = Checksums::Signer.new(val)
   }
@@ -602,10 +612,6 @@ def main(args)
   }
   opts.on('-v', '--verbose', "Display extra information") {
     $verbose = true
-  }
-  opts.on('--version', "Show version") {
-    puts Checksums::VERSION
-    exit
   }
   
   opts.separator ''
@@ -630,6 +636,7 @@ def main(args)
     verify_checksums root_dirs
   else
     puts opts.help
+    exit 0
   end
 end
 
