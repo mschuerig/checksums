@@ -15,12 +15,13 @@ class ChecksumsTest < Test::Unit::TestCase
   include Checksums
 
   setup do
-    @root_dir = grow_tree
+    @tree = grow_tree
+    @root_dir = @tree.root
   end
   
   teardown do
     validate_expectations
-    cut_down_tree
+    @tree.cut_down
   end
   
   
@@ -28,7 +29,7 @@ class ChecksumsTest < Test::Unit::TestCase
 
     test "are listed in bottom up order" do
       dirs = strip_root(BottomUpDirectories.new(@root_dir))
-      assert_equal directory_count, dirs.size
+      assert_equal @tree.directory_count, dirs.size
       
       dirs.each_with_index do |higher, i|
         dirs[0, i].each do |lower|
@@ -49,8 +50,8 @@ class ChecksumsTest < Test::Unit::TestCase
     end
 
     test "can exclude directories by glob pattern" do
-      directory '.ignored'
-      directory 'dir1/nested1/.ignored'
+      @tree.directory '.ignored'
+      @tree.directory 'dir1/nested1/.ignored'
       dirs = strip_root(BottomUpDirectories.new(@root_dir, :exclude => '**/.ignored'))
       assert_equal_elements [ '/empty', '/dir1', '/dir1/nested1', '/dir1/nested1/nested2', '' ], dirs
     end
@@ -91,7 +92,7 @@ class ChecksumsTest < Test::Unit::TestCase
     
     context "with an added file" do
       setup do
-        f = file 'added_file'
+        f = @tree.file 'added_file'
         antedate(f)
         @checked = CheckedDir.new(@root_dir)
       end
@@ -117,7 +118,7 @@ class ChecksumsTest < Test::Unit::TestCase
 
     context "with a removed file" do
       setup do
-        rm_file 'baz'
+        @tree.rm_file 'baz'
         @checked = CheckedDir.new(@root_dir)
       end
       
@@ -138,7 +139,7 @@ class ChecksumsTest < Test::Unit::TestCase
 
     context "with a changed file" do
       setup do
-        file 'baz', 'going thru changes'
+        @tree.file 'baz', 'going thru changes'
         @checked = CheckedDir.new(@root_dir)
         @expected_hash  = '73feffa4b7f6bb68e44cf984c85f6e88'
         @actual_hash    = 'ad769fd2bc30024dc4d636a978a4f011'
@@ -165,7 +166,7 @@ class ChecksumsTest < Test::Unit::TestCase
     
     context "with an added empty sub-directory" do
       setup do
-        directory "newdir"
+        @tree.directory "newdir"
         @checked = CheckedDir.new(@root_dir)
       end
       
@@ -181,7 +182,7 @@ class ChecksumsTest < Test::Unit::TestCase
 
     context "with a removed empty sub-directory" do
       setup do
-        rm_directory "empty"
+        @tree.rm_directory "empty"
         @checked = CheckedDir.new(@root_dir)
       end
       
@@ -240,7 +241,7 @@ class ChecksumsTest < Test::Unit::TestCase
       end
 
       test "item comparison can be skipped" do
-        file 'added_file'
+        @tree.file 'added_file'
         @checked.verify_checksums do |on|
           flunk_all(on)
           ignore(on, :valid_signature)
@@ -259,7 +260,7 @@ class ChecksumsTest < Test::Unit::TestCase
 
     context "with an added file" do
       setup do
-        file 'added_file'
+        @tree.file 'added_file'
         @checked = CheckedDir.new(@root_dir)
       end
 
@@ -277,6 +278,23 @@ class ChecksumsTest < Test::Unit::TestCase
 
   
   private
+
+  def grow_tree
+    F.new do
+      directory 'dir1' do
+      file 'foo'
+      directory 'nested1' do
+          directory 'nested2' do
+          file 'bar', 'BAR'
+          end
+      end
+      symlink 'fool', 'foo'
+      symlink 'dead'
+      end
+      file 'baz'
+      directory 'empty'
+    end
+  end
 
   def flunk_all(on)
     CALLBACKS.map(&:first).each do |callback|
@@ -311,30 +329,6 @@ class ChecksumsTest < Test::Unit::TestCase
     end
   end
   
-  def grow_tree
-    @root_dir = Dir.mktmpdir
-    @_dir_stack = [@root_dir]
-    
-    directory 'dir1' do
-      file 'foo'
-      directory 'nested1' do
-        directory 'nested2' do
-          file 'bar', 'BAR'
-        end
-      end
-      symlink 'fool', 'foo'
-      symlink 'dead'
-    end
-    file 'baz'
-    directory 'empty'
-    
-    @root_dir
-  end
-
-  def cut_down_tree
-    FileUtils.rm_rf(@root_dir)
-  end
-  
   def strip_root(dirs)
     dirs.map { |d|
       d.sub(/^#{@root_dir}/, '')
@@ -360,6 +354,32 @@ class ChecksumsTest < Test::Unit::TestCase
     assert File.file?(File.join(dir_path, CHECKSUM_FILENAME)), 'Checksum file not written'
   end
 
+  def antedate(*path)
+    t = Time.now + 1
+    File.utime(t, t, File.join(*path))
+  end
+  
+  def assert_equal_elements(expected, actual, message = nil)
+    e_set = Set.new(expected)
+    a_set = Set.new(actual)
+    assert_equal(e_set, a_set, message)
+  end
+end
+
+
+class F
+  attr_reader :root
+  
+  def initialize(&block)
+    @root = Dir.mktmpdir
+    @dir_stack = [@root]
+    instance_eval(&block) if block_given?
+  end
+    
+  def cut_down
+    FileUtils.rm_rf(@root)
+  end
+
   def file(name, contents = name)
     make_path(name).tap do |path|
       File.open(path, 'w') do |f|
@@ -374,44 +394,35 @@ class ChecksumsTest < Test::Unit::TestCase
       File.symlink(target, path)
     end
   end
-  
+
   def directory(name)
-    @_directory_count ||= 0
+    @directory_count ||= 0
     make_path(name).tap do |path|
       Dir.mkdir(path)
-      @_directory_count += 1
-      @_dir_stack.unshift(path)
+      @directory_count += 1
+      @dir_stack.unshift(path)
       yield if block_given?
     end
   ensure
-    @_dir_stack.shift
+    @dir_stack.shift
   end
-  
+
   def rm_file(name)
     File.delete(make_path(name))
   end
-  
+
   def rm_directory(name)
-    # invalidates @_directory_count
+    # invalidates @directory_count
     FileUtils.rm_rf(make_path(name))
   end
-  
+
   def directory_count
-    (@_directory_count || 0) + 1 # add 1 for root dir
+    (@directory_count || 0) + 1 # add 1 for root dir
   end
 
-  def antedate(*path)
-    t = Time.now + 1
-    File.utime(t, t, File.join(*path))
-  end
-  
+  private
+
   def make_path(name)
-    File.join(@_dir_stack.first, name)
-  end
-
-  def assert_equal_elements(expected, actual, message = nil)
-    e_set = Set.new(expected)
-    a_set = Set.new(actual)
-    assert_equal(e_set, a_set, message)
+    File.join(@dir_stack.first, name)
   end
 end
