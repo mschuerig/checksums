@@ -322,6 +322,8 @@ class ChecksumsTest < Test::Unit::TestCase
           file 'bar', 'BAR'
         end
       end
+      symlink 'fool', 'foo'
+      symlink 'dead'
     end
     file 'baz'
     directory 'empty'
@@ -363,6 +365,13 @@ class ChecksumsTest < Test::Unit::TestCase
       File.open(path, 'w') do |f|
         f.write(contents)
       end
+    end
+  end
+
+  def symlink(name, target = nil)
+    target ||= 'does-not-exist'
+    make_path(name).tap do |path|
+      File.symlink(target, path)
     end
   end
   

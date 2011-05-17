@@ -289,7 +289,7 @@ module Checksums
     
     def up_to_date?
       checksum_time = File.mtime(@checksum_file)
-      entries.all? { |other| File.mtime(other) <= checksum_time }
+      entries.all? { |other| File.lstat(other).mtime <= checksum_time }
     end
     
     def entries
