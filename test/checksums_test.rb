@@ -196,20 +196,23 @@ class ChecksumsTest < Test::Unit::TestCase
       end
     end
   
-    context "with a newly checked sub-directory" do
+    context "with recursively checked directories" do
       setup do
+        write_checksums(@root_dir, 'dir1', 'nested1', 'nested2')
+        write_checksums(@root_dir, 'dir1', 'nested1')
         write_checksums(@root_dir, 'dir1')
-        antedate(@root_dir, 'dir1')
+        antedate(@root_dir, 'dir1', 'nested1', 'nested2', 'bar')
       end
 
-      context "before update" do
-        test "directory needs to be updated" do
-          assert @checked.needs_update?
-        end
-
-        test "checksum for sub-directory is empty" do
-          assert_equal '', @checked.saved_checksums['dir1']
-        end
+      test "updates propagate upwards" do
+        sleep 1
+        assert needs_update?(@root_dir, 'dir1', 'nested1', 'nested2')
+        write_checksums(@root_dir, 'dir1', 'nested1', 'nested2')
+        assert needs_update?(@root_dir, 'dir1', 'nested1')
+        write_checksums(@root_dir, 'dir1', 'nested1')
+        assert needs_update?(@root_dir, 'dir1')
+        write_checksums(@root_dir, 'dir1')
+        assert needs_update?(@root_dir)
       end
       
       context "after update" do
@@ -282,14 +285,14 @@ class ChecksumsTest < Test::Unit::TestCase
   def grow_tree
     F.new do
       directory 'dir1' do
-      file 'foo'
-      directory 'nested1' do
+        file 'foo'
+        directory 'nested1' do
           directory 'nested2' do
-          file 'bar', 'BAR'
+            file 'bar', 'BAR'
           end
-      end
-      symlink 'fool', 'foo'
-      symlink 'dead'
+        end
+        symlink 'fool', 'foo'
+        symlink 'dead'
       end
       file 'baz'
       directory 'empty'
@@ -352,6 +355,11 @@ class ChecksumsTest < Test::Unit::TestCase
     d = CheckedDir.new(dir_path)
     d.write_checksum_file
     assert File.file?(File.join(dir_path, CHECKSUM_FILENAME)), 'Checksum file not written'
+  end
+
+  def needs_update?(*where)
+    dir_path = File.join(*where)
+    CheckedDir.new(dir_path).needs_update?
   end
 
   def antedate(*path)

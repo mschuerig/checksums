@@ -199,11 +199,11 @@ module Checksums
   class CheckedRootDirs
     include Enumerable
     
-    def initialize(roots, recursive, excludes, signer)
+    def initialize(roots, recursive, excludes = nil, signer = nil)
       @roots      = roots.map { |root| File.expand_path(root) }
       @recursive  = recursive
       @excludes   = excludes
-      @signer     = signer
+      @signer     = signer || Signer.new
     end
     
     def each
@@ -247,6 +247,8 @@ module Checksums
     
     def write_checksum_file
       write_file(@checksum_file, signed_checksums)
+      # Touch this directory so that the parent directory sees
+      # that its checksums need to be updated.
       touch_file(@dir)
     end
     
@@ -289,6 +291,8 @@ module Checksums
     
     def up_to_date?
       checksum_time = File.mtime(@checksum_file)
+      # This check depends on the (sub-)directories being touched
+      # when their checksum files are written.
       entries.all? { |other| File.lstat(other).mtime <= checksum_time }
     end
     
