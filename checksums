@@ -31,8 +31,8 @@ class BottomUpDirectories
   
   def each(&block)
     @dirs.each do |d|
-      @root_re = %r{^#{d}/}
-      each_dir(d, &block)
+      root_re = %r{^#{d}/}
+      each_dir([d], root_re, &block)
     end
   end
 
@@ -40,7 +40,7 @@ class BottomUpDirectories
   
   MATCH_FLAGS = File::FNM_PATHNAME | File::FNM_DOTMATCH
   
-  def each_dir(dirs, &block)
+  def each_dir(dirs, root_re, &block)
     dirs.each do |dir|
       begin
         children = []
@@ -50,13 +50,13 @@ class BottomUpDirectories
             path = File.join(dir, it)
             next unless File.exist?(path) && File.lstat(path).directory?
             unless @excludes.empty?
-              match_path = path.sub(@root_re, '')
+              match_path = path.sub(root_re, '')
               next if @excludes.any? { |excl| File.fnmatch(excl, match_path, MATCH_FLAGS) }
             end
             children << path
           end
         end
-        each_dir(children, &block)
+        each_dir(children, root_re, &block)
         block[dir]
       rescue Errno::ENOENT, Errno::EACCES
         ### really?
