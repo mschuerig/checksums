@@ -33,9 +33,9 @@ Prerequisites
 -------------
 
 - ruby
-- gpgme ruby bindings
+- gpgme ruby bindings version 2.0.0 (or possibly newer)
  - either the gpgme gem
- - or the Debian package libgpgme-ruby
+ - or the Debian package ruby-gpgme
 
 
 Usage

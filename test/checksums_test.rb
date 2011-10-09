@@ -1,6 +1,6 @@
 
 require 'rubygems'
-require 'ruby-debug'
+#require 'ruby-debug'
 
 require 'test/unit'
 require 'contest'
@@ -8,7 +8,7 @@ require 'fileutils'
 require 'set'
 require 'tmpdir'
 
-require 'checksums'
+load File.join(File.dirname(__FILE__), '../checksums')
 
 
 class ChecksumsTest < Test::Unit::TestCase

@@ -67,7 +67,7 @@ end
 
 
 module Checksums
-  VERSION = '0.1'
+  VERSION = '0.2'
   CHECKSUM_FILENAME = '.checksums'
 
   CALLBACKS = [
@@ -308,7 +308,7 @@ module Checksums
     end
     
     def signed_checksums
-      GPGME::clearsign(checksums.formatted, :signers => @signer.signers)
+      GPGME::Crypto.clearsign(checksums.formatted, :signers => @signer.signers).read
     end
     
     def read_checksums(callbacks = VerificationCallbacks.new)
@@ -328,10 +328,10 @@ module Checksums
 
     def verify_signature(sums)
       {}.tap do |result|
-        result[:checksums]  = GPGME::verify(sums) do |signature|
+        result[:checksums]  = GPGME::Crypto.verify(sums) do |signature|
           result[:valid]    = @signer.valid_signature?(signature)
           result[:message]  = signature.to_s
-        end
+        end.read
       end
     end
     
@@ -389,18 +389,18 @@ module Checksums
     end
     
     def signer_key
-      @signer_key ||= resolve_key(@signer)
-    end
-    
-    def resolve_key(key_or_name)
-      GPGME::check_version({}) # required to ensure GPGME is initialized properly
-      GPGME::resolve_keys(key_or_name, true, [:sign]).first
+      acceptable_keys.first
     end
     
     def acceptable_keys
       @acceptable_keys ||= begin
-        GPGME::check_version({}) # required to ensure GPGME is initialized properly
-        GPGME::list_keys(@signer || '', true, [:sign])
+        keys = []
+        GPGME::Ctx.new do |ctx|
+          ctx.each_key(@signer || '', true) do |k|
+            keys << k if k.usable_for?([:sign])
+          end
+          keys
+        end
       end
     end
 
