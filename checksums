@@ -38,7 +38,7 @@ class BottomUpDirectories
 
   private
   
-  MATCH_FLAGS = File::FNM_PATHNAME | File::FNM_DOTMATCH
+  MATCH_FLAGS = File::FNM_PATHNAME
   
   def each_dir(dirs, root_re, &block)
     dirs.each do |dir|
