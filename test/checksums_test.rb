@@ -1,9 +1,7 @@
 
 require 'rubygems'
-#require 'ruby-debug'
 
-require 'test/unit'
-require 'contest'
+require 'minitest/autorun'
 require 'fileutils'
 require 'set'
 require 'tmpdir'
@@ -11,45 +9,44 @@ require 'tmpdir'
 load File.join(File.dirname(__FILE__), '../checksums')
 
 
-class ChecksumsTest < Test::Unit::TestCase
-  include Checksums
+describe Checksums do
 
-  setup do
+  before do
     @tree = grow_tree
     @root_dir = @tree.root
   end
   
-  teardown do
+  after do
     validate_expectations
     @tree.cut_down
   end
   
   
-  context "directories" do
+  describe "directories" do
 
-    test "are listed in bottom up order" do
+    it "are listed in bottom up order" do
       dirs = strip_root(BottomUpDirectories.new(@root_dir))
       assert_equal @tree.directory_count, dirs.size
       
       dirs.each_with_index do |higher, i|
         dirs[0, i].each do |lower|
-          assert_no_match %r{^#{lower}}, higher,
+          refute_match %r{^#{lower}}, higher,
               "Higher directory #{higher} listed before lower directory #{lower}"
         end
       end
     end
     
-    test "can exclude top-level directory by path" do
+    it "can exclude top-level directory by path" do
       dirs = strip_root(BottomUpDirectories.new(@root_dir, :exclude => 'dir1'))
       assert_equal_elements [ '/empty', '' ], dirs
     end
 
-    test "can exclude mid-level directory by path" do
+    it "can exclude mid-level directory by path" do
       dirs = strip_root(BottomUpDirectories.new(@root_dir, :exclude => 'dir1/nested1'))
       assert_equal_elements [ '/empty', '/dir1', '' ], dirs
     end
 
-    test "can exclude directories by glob pattern" do
+    it "can exclude directories by glob pattern" do
       @tree.directory '.ignored'
       @tree.directory 'dir1/nested1/.ignored'
       dirs = strip_root(BottomUpDirectories.new(@root_dir, :exclude => '**/.ignored'))
@@ -58,17 +55,17 @@ class ChecksumsTest < Test::Unit::TestCase
   end
   
   
-  context "in a checked directory" do
-    setup do
+  describe "in a checked directory" do
+    before do
       write_checksums(@root_dir)
-      @checked = CheckedDir.new(@root_dir)
+      @checked = Checksums::CheckedDir.new(@root_dir)
     end
     
-    test "update is not necessary" do
+    it "update is not necessary" do
       assert !@checked.needs_update?
     end
     
-    test "checksums verify" do
+    it "checksums verify" do
       @checked.verify_checksums do |on|
         flunk_all(on)
         expect(on, :valid_signature)
@@ -76,10 +73,10 @@ class ChecksumsTest < Test::Unit::TestCase
       end
     end
     
-    test "manipulated checksums are noticed" do
+    it "manipulated checksums are noticed" do
       edit_checksums('73feffa4b7f6bb68e44cf984c85f6e88', '00000000000000000000000000000000')
       
-      d = CheckedDir.new(@root_dir)
+      d = Checksums::CheckedDir.new(@root_dir)
       d.verify_checksums do |on|
         on.invalid_signature do
           @noticed = true
@@ -90,18 +87,18 @@ class ChecksumsTest < Test::Unit::TestCase
       assert @noticed, "Manipulated checksums not noticed."
     end
     
-    context "with an added file" do
-      setup do
+    describe "with an added file" do
+      before do
         f = @tree.file 'added_file'
         antedate(f)
-        @checked = CheckedDir.new(@root_dir)
+        @checked = Checksums::CheckedDir.new(@root_dir)
       end
 
-      test "update is necessary" do
+      it "update is necessary" do
         assert @checked.needs_update?
       end
 
-      test "the added file is noticed" do
+      it "the added file is noticed" do
         @checked.verify_checksums do |on|
           flunk_all(on)
           ignore(on, :valid_signature, :item_unchanged)
@@ -110,19 +107,19 @@ class ChecksumsTest < Test::Unit::TestCase
         end
       end
 
-      test "added_items" do
+      it "added_items" do
         changes = @checked.verify_checksums
         assert_equal ['added_file'], changes.added_items
       end
     end
 
-    context "with a removed file" do
-      setup do
+    describe "with a removed file" do
+      before do
         @tree.rm_file 'baz'
-        @checked = CheckedDir.new(@root_dir)
+        @checked = Checksums::CheckedDir.new(@root_dir)
       end
       
-      test "the removed file is noticed" do
+      it "the removed file is noticed" do
         @checked.verify_checksums do |on|
           flunk_all(on)
           ignore(on, :valid_signature, :item_unchanged)
@@ -131,21 +128,21 @@ class ChecksumsTest < Test::Unit::TestCase
         end
       end
 
-      test "removed_items" do
+      it "removed_items" do
         changes = @checked.verify_checksums
         assert_equal ['baz'], changes.removed_items
       end
     end
 
-    context "with a changed file" do
-      setup do
+    describe "with a changed file" do
+      before do
         @tree.file 'baz', 'going thru changes'
-        @checked = CheckedDir.new(@root_dir)
+        @checked = Checksums::CheckedDir.new(@root_dir)
         @expected_hash  = '73feffa4b7f6bb68e44cf984c85f6e88'
         @actual_hash    = 'ad769fd2bc30024dc4d636a978a4f011'
       end
       
-      test "the changed file is noticed" do
+      it "the changed file is noticed" do
         @checked.verify_checksums do |on|
           flunk_all(on)
           ignore(on, :valid_signature, :item_unchanged)
@@ -155,7 +152,7 @@ class ChecksumsTest < Test::Unit::TestCase
         end
       end
 
-      test "changed_items" do
+      it "changed_items" do
         changes = @checked.verify_checksums
         assert_equal [{ :item           => 'baz',
                         :expected_hash  => @expected_hash,
@@ -164,13 +161,13 @@ class ChecksumsTest < Test::Unit::TestCase
       end
     end
     
-    context "with an added empty sub-directory" do
-      setup do
+    describe "with an added empty sub-directory" do
+      before do
         @tree.directory "newdir"
-        @checked = CheckedDir.new(@root_dir)
+        @checked = Checksums::CheckedDir.new(@root_dir)
       end
       
-      test "the added directory is noticed" do
+      it "the added directory is noticed" do
         @checked.verify_checksums do |on|
           flunk_all(on)
           ignore(on, :valid_signature, :item_unchanged)
@@ -180,13 +177,13 @@ class ChecksumsTest < Test::Unit::TestCase
       end
     end
 
-    context "with a removed empty sub-directory" do
-      setup do
+    describe "with a removed empty sub-directory" do
+      before do
         @tree.rm_directory "empty"
-        @checked = CheckedDir.new(@root_dir)
+        @checked = Checksums::CheckedDir.new(@root_dir)
       end
       
-      test "the removed directory is noticed" do
+      it "the removed directory is noticed" do
         @checked.verify_checksums do |on|
           flunk_all(on)
           ignore(on, :valid_signature, :item_unchanged)
@@ -196,15 +193,15 @@ class ChecksumsTest < Test::Unit::TestCase
       end
     end
   
-    context "with recursively checked directories" do
-      setup do
+    describe "with recursively checked directories" do
+      before do
         write_checksums(@root_dir, 'dir1', 'nested1', 'nested2')
         write_checksums(@root_dir, 'dir1', 'nested1')
         write_checksums(@root_dir, 'dir1')
         antedate(@root_dir, 'dir1', 'nested1', 'nested2', 'bar')
       end
 
-      test "updates propagate upwards" do
+      it "updates propagate upwards" do
         sleep 1
         assert needs_update?(@root_dir, 'dir1', 'nested1', 'nested2')
         write_checksums(@root_dir, 'dir1', 'nested1', 'nested2')
@@ -215,26 +212,26 @@ class ChecksumsTest < Test::Unit::TestCase
         assert needs_update?(@root_dir)
       end
       
-      context "after update" do
-        setup do
+      describe "after update" do
+        before do
           write_checksums(@root_dir)
         end
 
-        test "checksum for sub-directory is not empty" do
+        it "checksum for sub-directory is not empty" do
           # The exact checksum of the checksum file depends on
           # the key used for signing it.
           # TODO consider using the unsigned checksums
-          assert_not_equal '', @checked.saved_checksums['dir1']
+          refute_equal '', @checked.saved_checksums['dir1']
         end
       end
     end
 
-    context "skipping" do
-      setup do
-        @checked = CheckedDir.new(@root_dir)
+    describe "skipping" do
+      before do
+        @checked = Checksums::CheckedDir.new(@root_dir)
       end
       
-      test "checksum comparison can be skipped" do
+      it "checksum comparison can be skipped" do
         @checked.verify_checksums do |on|
           flunk_all(on)
           on.valid_signature do
@@ -243,7 +240,7 @@ class ChecksumsTest < Test::Unit::TestCase
         end
       end
 
-      test "item comparison can be skipped" do
+      it "item comparison can be skipped" do
         @tree.file 'added_file'
         @checked.verify_checksums do |on|
           flunk_all(on)
@@ -259,15 +256,15 @@ class ChecksumsTest < Test::Unit::TestCase
   end
   
   
-  context "in an unchecked directory" do
+  describe "in an unchecked directory" do
 
-    context "with an added file" do
-      setup do
+    describe "with an added file" do
+      before do
         @tree.file 'added_file'
-        @checked = CheckedDir.new(@root_dir)
+        @checked = Checksums::CheckedDir.new(@root_dir)
       end
 
-      test "the added file is noticed" do
+      it "the added file is noticed" do
         @checked.verify_checksums do |on|
           flunk_all(on)
           ignore(on, :valid_signature, :item_unchanged)
@@ -300,7 +297,7 @@ class ChecksumsTest < Test::Unit::TestCase
   end
 
   def flunk_all(on)
-    CALLBACKS.map(&:first).each do |callback|
+    Checksums::CALLBACKS.map(&:first).each do |callback|
       on.send(callback) do |*args|
         flunk "callback #{callback} unexpectedly called with #{args.inspect}"
       end
@@ -340,7 +337,7 @@ class ChecksumsTest < Test::Unit::TestCase
 
   def read_checksums(*where)
     where = [@root_dir] if where.empty?
-    path = File.join(File.join(*where), CHECKSUM_FILENAME)
+    path = File.join(File.join(*where), Checksums::CHECKSUM_FILENAME)
     [ path, File.read(path) ]
   end
 
@@ -352,14 +349,14 @@ class ChecksumsTest < Test::Unit::TestCase
   
   def write_checksums(*where)
     dir_path = File.join(*where)
-    d = CheckedDir.new(dir_path)
+    d = Checksums::CheckedDir.new(dir_path)
     d.write_checksum_file
-    assert File.file?(File.join(dir_path, CHECKSUM_FILENAME)), 'Checksum file not written'
+    assert File.file?(File.join(dir_path, Checksums::CHECKSUM_FILENAME)), 'Checksum file not written'
   end
 
   def needs_update?(*where)
     dir_path = File.join(*where)
-    CheckedDir.new(dir_path).needs_update?
+    Checksums::CheckedDir.new(dir_path).needs_update?
   end
 
   def antedate(*path)
