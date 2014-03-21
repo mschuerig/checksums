@@ -323,7 +323,7 @@ module Checksums
         callbacks.notify_invalid_signature(@dir, @signer, verified_checksums[:message])
       end
       
-      Checksums.from_formatted_checksums(@dir, verified_checksums[:checksums])
+      Checksums.from_formatted_checksums(@dir, verified_checksums[:checksums].force_encoding('UTF-8'))
     end
 
     def verify_signature(sums)
