@@ -1,6 +1,6 @@
-#! /usr/bin/ruby
+#! /usr/bin/env ruby2.1
 #
-# Copyright (C) 2011 Michael Schürig <michael@schuerig.de>
+# Copyright (C) 2014 Michael Schürig <michael@schuerig.de>
 #  
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -530,7 +530,7 @@ end
 
 def update_checksums(root_dirs)
   puts "Updating checksums..." if $verbose
-  dirs(root_dirs).select(&:needs_update?).each do |checked_dir|
+  dirs(root_dirs).lazy.select(&:needs_update?).each do |checked_dir|
     puts checked_dir if $verbose || $dry_run
     checked_dir.write_checksum_file unless $dry_run
   end

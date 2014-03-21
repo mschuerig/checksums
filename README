@@ -32,7 +32,7 @@ purpose, among other things. So why this script?
 Prerequisites
 -------------
 
-- ruby
+- ruby >= 2.0
 - gpgme ruby bindings version 2.0.0 (or possibly newer)
  - either the gpgme gem
  - or the Debian package ruby-gpgme
@@ -137,4 +137,4 @@ Cmnd_Alias CHECKSUMS = /usr/local/bin/checksums # or wherever you install the sc
 Defaults!CHECKSUMS env_keep+=GPG_AGENT_INFO
 
 
-Copyright (C) 2011 Michael Schürig <michael@schuerig.de>
+Copyright (C) 2014 Michael Schürig <michael@schuerig.de>
