@@ -131,10 +131,10 @@ module Checksums
       if compare_items
         expecteds = @checksums.dup
         actuals   = other.checksums.dup
-        
+
         e_file, e_hash = expecteds.shift
         a_file, a_hash = actuals.shift
-        
+
         until e_file.nil? && a_file.nil? do
           case 
           when e_file == a_file
@@ -171,7 +171,7 @@ module Checksums
     def self.checksums_from_paths(paths)
       paths.inject([]) { |sums, path|
         stat = File.lstat(path)
-        hash = nil
+        hash = '-'
         case
         when stat.symlink?
           hash = Digest::MD5.hexdigest(File.readlink(path))

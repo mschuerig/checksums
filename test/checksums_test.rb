@@ -290,6 +290,7 @@ describe Checksums do
         end
         symlink 'fool', 'foo'
         symlink 'dead'
+        fifo 'pipe'
       end
       file 'baz'
       directory 'empty'
@@ -397,6 +398,12 @@ class F
     target ||= 'does-not-exist'
     make_path(name).tap do |path|
       File.symlink(target, path)
+    end
+  end
+
+  def fifo(name)
+    make_path(name).tap do |path|
+      `mkfifo '#{path}'`
     end
   end
 
