@@ -517,7 +517,8 @@ $excludes               = []
 $signer                 = nil
 
 def dirs(root_dirs)
-  Checksums::CheckedRootDirs.new(root_dirs, $recursive, $excludes, $signer).reject(&:ignored?)
+  Checksums::CheckedRootDirs.new(root_dirs, $recursive, $excludes, $signer).
+    lazy.reject(&:ignored?)
 end
 
 def create_checksums(root_dirs)
@@ -530,7 +531,7 @@ end
 
 def update_checksums(root_dirs)
   puts "Updating checksums..." if $verbose
-  dirs(root_dirs).lazy.select(&:needs_update?).each do |checked_dir|
+  dirs(root_dirs).select(&:needs_update?).each do |checked_dir|
     puts checked_dir if $verbose || $dry_run
     checked_dir.write_checksum_file unless $dry_run
   end
