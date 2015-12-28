@@ -2,7 +2,7 @@
 Checksums
 =========
 
-Create and verify GPG-signed MD5 checksums for all files in a
+Create and verify GPG-signed SHA256 checksums for all files in a
 directory tree.
 
 
@@ -137,4 +137,4 @@ Cmnd_Alias CHECKSUMS = /usr/local/bin/checksums # or wherever you install the sc
 Defaults!CHECKSUMS env_keep+=GPG_AGENT_INFO
 
 
-Copyright (C) 2014 Michael Schürig <michael@schuerig.de>
+Copyright (C) 2015 Michael Schürig <michael@schuerig.de>
