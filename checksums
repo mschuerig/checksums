@@ -16,7 +16,7 @@
 # along with this program; if not, write to the Free Software 
 # Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 
-require 'digest/md5'
+require 'digest/sha2'
 require 'gpgme'
 
 
@@ -69,7 +69,8 @@ end
 module Checksums
   VERSION = '0.2'
   CHECKSUM_FILENAME = '.checksums'
-
+  DIGEST = Digest::SHA256
+  
   CALLBACKS = [
     [ :valid_signature, 3 ],
     [ :invalid_signature, 3 ],
@@ -174,14 +175,14 @@ module Checksums
         hash = '-'
         case
         when stat.symlink?
-          hash = Digest::MD5.hexdigest(File.readlink(path))
+          hash = DIGEST.hexdigest(File.readlink(path))
         when stat.directory?
           # An empty or unchecked directory does not have a checksum file and
           # gets an empty checksum.
           # TODO calculate digest for unwrapped (unsigned) checksum file?
-          hash = Digest::MD5.file(File.join(path, CHECKSUM_FILENAME)).hexdigest rescue ''
+          hash = DIGEST.file(File.join(path, CHECKSUM_FILENAME)).hexdigest rescue ''
         when stat.file?
-          hash = Digest::MD5.file(path).hexdigest
+          hash = DIGEST.file(path).hexdigest
         end
         sums << [ File.basename(path), hash ]
         sums

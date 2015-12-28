@@ -74,7 +74,8 @@ describe Checksums do
     end
     
     it "manipulated checksums are noticed" do
-      edit_checksums('73feffa4b7f6bb68e44cf984c85f6e88', '00000000000000000000000000000000')
+      edit_checksums('baa5a0964d3320fbc0c6a922140453c8513ea24ab8fd0577034804a967248096',
+                     '0000000000000000000000000000000000000000000000000000000000000000')
       
       d = Checksums::CheckedDir.new(@root_dir)
       d.verify_checksums do |on|
@@ -138,8 +139,8 @@ describe Checksums do
       before do
         @tree.file 'baz', 'going thru changes'
         @checked = Checksums::CheckedDir.new(@root_dir)
-        @expected_hash  = '73feffa4b7f6bb68e44cf984c85f6e88'
-        @actual_hash    = 'ad769fd2bc30024dc4d636a978a4f011'
+        @expected_hash  = 'baa5a0964d3320fbc0c6a922140453c8513ea24ab8fd0577034804a967248096'
+        @actual_hash    = '9ff371a6e106fde8a85dc0d0f7c59e1ece4f74a0948a355d813dccabcd9fb8d5'
       end
       
       it "the changed file is noticed" do
@@ -344,8 +345,9 @@ describe Checksums do
 
   def edit_checksums(target, replacement, *where)
     path, text = read_checksums(*where)
-    text.sub!(target, replacement)
-    File.open(path, 'w') { |f| f.write(text) }
+    edited = text.sub(target, replacement)
+    raise "Target checksum #{target} not found in #{File.join(*where)}" if edited == text
+    File.open(path, 'w') { |f| f.write(edited) }
   end
   
   def write_checksums(*where)
